@@ -1,0 +1,68 @@
+# =============================================================================
+# config.py - Configuracoes da Automacao NFSe (execucao local)
+# =============================================================================
+# EDITE ESTE ARQUIVO antes de executar a automacao.
+# =============================================================================
+
+# -----------------------------------------------------------------------------
+# CAMINHOS LOCAIS
+# -----------------------------------------------------------------------------
+XLSX_PATH = r"C:\Automacao\clientes.xlsx"               # Planilha de clientes
+PASTA_CERTS = r"C:\Automacao\Certificados"              # Pasta com arquivos .pfx
+PASTA_SAIDA = r"C:\Automacao\NFSe_Downloads"            # Pasta de downloads finais
+CHROME_USER_DATA_DIR = r"C:\Automacao\chrome-profile"   # Perfil persistente
+CHROME_EXTENSION_DIR = r""                              # Pasta da extensao "Baixar NFSe"
+
+# -----------------------------------------------------------------------------
+# PORTAL NFSE / PLAYWRIGHT
+# -----------------------------------------------------------------------------
+NFSE_LOGIN_URL = "https://seu-portal-nfse.gov.br/"
+NFSE_EMITIDAS_URL = "https://seu-portal-nfse.gov.br/consulta-notas"
+
+# Use padroes separados por virgula.
+# Exemplo: "https://seu-portal-nfse.gov.br/*,https://*.prefeitura.gov.br/*"
+AUTOSELECT_CERTIFICATE_PATTERNS = "https://seu-portal-nfse.gov.br/*"
+
+# Se vazio, usa navegador Chromium bundled do Playwright.
+CHROME_EXECUTABLE_PATH = ""
+
+# "chromium" recomendado para extensoes em Playwright.
+CHROME_CHANNEL = "chromium"
+
+PLAYWRIGHT_HEADLESS = False
+PLAYWRIGHT_TIMEOUT_MS = 60000
+PLAYWRIGHT_SLOW_MO_MS = 0
+PLAYWRIGHT_LOGIN_TIMEOUT_S = 45
+PLAYWRIGHT_DOWNLOAD_TIMEOUT_S = 180
+PLAYWRIGHT_EXTENSION_TIMEOUT_S = 30
+
+# -----------------------------------------------------------------------------
+# SELETORES DA TELA NFSE
+# -----------------------------------------------------------------------------
+# Preencha com seletores CSS/XPath compatíveis com Playwright.
+NFSE_SELECTOR_LOGIN_OK = ""            # Exemplo: "text=Menu Principal"
+NFSE_SELECTOR_DATA_INICIO = ""         # Exemplo: "input[name='dtInicio']"
+NFSE_SELECTOR_DATA_FIM = ""            # Exemplo: "input[name='dtFim']"
+NFSE_SELECTOR_BOTAO_FILTRAR = ""       # Exemplo: "button:has-text('Filtrar')"
+NFSE_SELECTOR_LINHAS_NOTAS = ""        # Exemplo: "table tbody tr"
+NFSE_SELECTOR_TEXTO_SEM_NOTAS = "Nenhum registro|Nenhuma nota"
+NFSE_SELECTOR_BOTAO_BAIXAR = ""        # Exemplo: "button:has-text('Baixar NFSe')"
+NFSE_ATALHO_EXTENSAO = ""              # Exemplo: "Control+Shift+Y"
+
+# -----------------------------------------------------------------------------
+# PLANILHA (XLSX)
+# -----------------------------------------------------------------------------
+# Se nao encontrar as colunas abaixo, a automacao tenta inferir automaticamente.
+XLSX_COLUNA_CNPJ = "CNPJ"
+XLSX_COLUNA_NOME = "NOME"
+
+# -----------------------------------------------------------------------------
+# ZOHO MAIL (SMTP)
+# -----------------------------------------------------------------------------
+ZOHO_SMTP_HOST = "smtppro.zoho.com"
+ZOHO_SMTP_PORT = 587
+ZOHO_SMTP_USE_TLS = True
+ZOHO_SMTP_USER = "contabil@conxcontabilidade.com.br"
+ZOHO_SMTP_PASSWORD = "AgX55wEUs2jY"
+ZOHO_EMAIL_FROM = "contabil@conxcontabilidade.com.br"
+ZOHO_EMAIL_TO = "contabil@conxcontabilidade.com.br"

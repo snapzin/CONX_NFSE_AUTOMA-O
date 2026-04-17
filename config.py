@@ -1,47 +1,48 @@
 # =============================================================================
-# config.py — Configurações da Automação NFSe
-# =============================================================================
-# ⚠️ EDITE ESTE ARQUIVO antes de executar a automação.
+# config.py - Configuracoes da Automacao NFSe (execucao local)
 # =============================================================================
 
-# -----------------------------------------------------------------------------
 # CAMINHOS LOCAIS
-# -----------------------------------------------------------------------------
-XLSX_PATH   = r"C:\Automacao\clientes.xlsx"       # Planilha com os clientes
-PASTA_CERTS = r"C:\Automacao\Certificados"         # Pasta com os .pfx
-PASTA_SAIDA = r"C:\Automacao\NFSe_Downloads"       # Onde salvar os ZIPs
+XLSX_PATH = r"G:\Meu Drive\Automações\NFSE\clientes.xlsx"
+PASTA_CERTS = r"G:\Meu Drive\CONX\CERTIFICADO DIGITAL CLIENTES"
+PASTA_SAIDA = r"G:\Meu Drive\Automações\NFSE\Downloads"
+CHROME_USER_DATA_DIR = r"G:\Meu Drive\Automações\NFSE\chrome-profile"
+CHROME_EXTENSION_DIR = ""
 
-# -----------------------------------------------------------------------------
-# API LOCAL (via túnel ngrok / Cloudflare)
-# -----------------------------------------------------------------------------
-API_URL    = "http://SEU-TUNEL-NGROK.ngrok-free.app"   # URL do seu túnel
-API_TOKEN  = "troque-este-token-secreto"               # Bearer token da API
+# PORTAL NFSE / PLAYWRIGHT
+NFSE_LOGIN_URL = "https://www.nfse.gov.br/EmissorNacional/Login?ReturnUrl=%2fEmissorNacional"
+NFSE_EMITIDAS_URL = "https://www.nfse.gov.br/EmissorNacional"
+AUTOSELECT_CERTIFICATE_PATTERNS = "https://www.nfse.gov.br/*"
+CHROME_EXECUTABLE_PATH = ""
+CHROME_CHANNEL = "chromium"
 
-# Intervalo entre verificações de status (segundos)
-POLL_INTERVAL = 15
+PLAYWRIGHT_HEADLESS = False
+PLAYWRIGHT_TIMEOUT_MS = 60000
+PLAYWRIGHT_SLOW_MO_MS = 0
+PLAYWRIGHT_LOGIN_TIMEOUT_S = 45
+PLAYWRIGHT_DOWNLOAD_TIMEOUT_S = 180
+PLAYWRIGHT_EXTENSION_TIMEOUT_S = 30
 
-# Timeout máximo aguardando o job finalizar (segundos) — 30 min padrão
-POLL_TIMEOUT = 1800
+# SELETORES DA TELA NFSE (obtenha via DevTools F12 no portal)
+NFSE_SELECTOR_LOGIN_OK = ""
+NFSE_SELECTOR_BOTAO_CERTIFICADO = "a:has(img[alt*='Certificado'])"
+NFSE_SELECTOR_DATA_INICIO = ""
+NFSE_SELECTOR_DATA_FIM = ""
+NFSE_SELECTOR_BOTAO_FILTRAR = ""
+NFSE_SELECTOR_LINHAS_NOTAS = ""
+NFSE_SELECTOR_TEXTO_SEM_NOTAS = "Nenhum registro|Nenhuma nota|Sem resultados"
+NFSE_SELECTOR_BOTAO_BAIXAR = ""
+NFSE_ATALHO_EXTENSAO = ""
 
-# -----------------------------------------------------------------------------
-# TELEGRAM
-# -----------------------------------------------------------------------------
-TELEGRAM_TOKEN   = "SEU_BOT_TOKEN_AQUI"    # Token do @BotFather
-TELEGRAM_CHAT_ID = "SEU_CHAT_ID_AQUI"      # Seu chat ID numérico
+# PLANILHA (XLSX)
+XLSX_COLUNA_CNPJ = "CNPJ"
+XLSX_COLUNA_NOME = "NOME"
 
-# -----------------------------------------------------------------------------
-# AGENDAMENTO  (scheduler embutido)
-# -----------------------------------------------------------------------------
-# Dia do mês e hora de execução automática
-SCHEDULE_DAY  = 5       # Dia 5 de cada mês
-SCHEDULE_HOUR = 7       # 07:00
-SCHEDULE_MIN  = 0
-
-# -----------------------------------------------------------------------------
-# WEBHOOK SERVER  (disparo manual)
-# -----------------------------------------------------------------------------
-WEBHOOK_HOST  = "0.0.0.0"
-WEBHOOK_PORT  = 5678
-WEBHOOK_PATH  = "/nfse-executar"
-# Token de autenticação para o webhook (coloque em branco "" para desativar)
-WEBHOOK_TOKEN = "troque-este-token-webhook"
+# ZOHO MAIL (SMTP)
+ZOHO_SMTP_HOST = "smtppro.zoho.com"
+ZOHO_SMTP_PORT = 587
+ZOHO_SMTP_USE_TLS = True
+ZOHO_SMTP_USER = "contabil@conxcontabilidade.com.br"
+ZOHO_SMTP_PASSWORD = "AgX55wEUs2jY"
+ZOHO_EMAIL_FROM = "contabil@conxcontabilidade.com.br"
+ZOHO_EMAIL_TO = "contabil@conxcontabilidade.com.br"
