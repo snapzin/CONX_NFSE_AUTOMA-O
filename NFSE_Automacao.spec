@@ -1,12 +1,23 @@
 # -*- mode: python ; coding: utf-8 -*-
+from PyInstaller.utils.hooks import collect_data_files, collect_submodules
 
+datas = []
+datas += collect_data_files("customtkinter")
+datas += collect_data_files("tkcalendar")
+datas += collect_data_files("babel")
+datas += collect_data_files("playwright")
+
+hiddenimports = []
+hiddenimports += collect_submodules("babel")
+hiddenimports += ["PIL._tkinter_finder"]
+hiddenimports += collect_submodules("playwright")
 
 a = Analysis(
     ['gui_app.py'],
     pathex=[],
     binaries=[],
-    datas=[],
-    hiddenimports=[],
+    datas=datas,
+    hiddenimports=hiddenimports,
     hookspath=[],
     hooksconfig={},
     runtime_hooks=[],
@@ -26,13 +37,14 @@ exe = EXE(
     bootloader_ignore_signals=False,
     strip=False,
     upx=True,
-    console=True,
+    console=False,
     disable_windowed_traceback=False,
     argv_emulation=False,
     target_arch=None,
     codesign_identity=None,
     entitlements_file=None,
 )
+
 coll = COLLECT(
     exe,
     a.binaries,
@@ -41,4 +53,5 @@ coll = COLLECT(
     upx=True,
     upx_exclude=[],
     name='NFSE_Automacao',
+    contents_directory='.',
 )

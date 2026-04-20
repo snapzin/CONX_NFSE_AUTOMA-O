@@ -121,3 +121,31 @@ Uso interno CONX Contabilidade.
 ---
 
 **Versão**: 2.3 | **Status**: Production Ready ✓
+
+## Interface JavaScript (Electron)
+
+Tambem existe uma versao da interface em JavaScript, mantendo o mesmo motor Python de automacao.
+
+### Como executar
+
+```bash
+cd js-app
+npm install
+npm run start
+```
+
+### Arquitetura
+
+- `js-app/` -> app desktop Electron (UI em HTML/CSS/JS)
+- `nfse_bridge.py` -> ponte entre a UI JS e a automacao Python
+- `nfse_automacao.py` -> motor principal de execucao (Playwright + certificados)
+
+## Build do executavel (fixo)
+
+Para gerar o pacote sem erro de `_internal\\_internal`, use sempre:
+
+```powershell
+.\build_nfse.ps1
+```
+
+O script faz limpeza, compila com `NFSE_Automacao.spec` e valida a estrutura final em `dist\\NFSE_Automacao`.
