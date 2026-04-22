@@ -24,8 +24,8 @@ from pathlib import Path
 from tkinter import messagebox
 import tkinter as tk
 
-import customtkinter as ctk
-from tkcalendar import DateEntry
+import customtkinter as ctk  # type: ignore[import-untyped]
+from tkcalendar import DateEntry  # type: ignore[import-untyped]
 
 from cert_reader import indexar_certificados_por_cnpj, listar_certificados
 from nfse_automacao import ExecucaoCancelada, executar
@@ -709,11 +709,11 @@ class NFSEGuiApp(ctk.CTk):
         self.logs_text.grid(row=1, column=0, sticky="nsew", padx=14, pady=(0, 12))
         self.logs_text.configure(state="disabled")
 
-        inner = self.logs_text._textbox  # tk.Text real
+        inner = self.logs_text._textbox  # type: ignore[attr-defined]  # tk.Text real
         for level, color in LEVEL_COLORS.items():
-            inner.tag_configure(level, foreground=color)
-        inner.tag_configure("TIMESTAMP", foreground=PALETTE.text_secondary)
-        inner.tag_configure("MATCH", background="#3a4b6b")
+            inner.tag_configure(level, foreground=color)  # type: ignore[no-untyped-call]
+        inner.tag_configure("TIMESTAMP", foreground=PALETTE.text_secondary)  # type: ignore[no-untyped-call]
+        inner.tag_configure("MATCH", background="#3a4b6b")  # type: ignore[no-untyped-call]
 
     # ---------------------------------------------------------------- pagina config
     def _build_page_config(self) -> ctk.CTkFrame:
@@ -1002,7 +1002,7 @@ class NFSEGuiApp(ctk.CTk):
             pass
 
     def _on_theme_change(self, value: str) -> None:
-        ctk.set_appearance_mode("dark" if value == "Escuro" else "light")
+        ctk.set_appearance_mode("dark" if value == "Escuro" else "light")  # type: ignore[no-untyped-call]
 
     def _toggle_data_entries(self) -> None:
         if self.usar_mes_anterior.get():
@@ -1110,7 +1110,7 @@ class NFSEGuiApp(ctk.CTk):
         Aplica um lote de mensagens no textbox com um unico toggle de estado
         e uma unica chamada a see("end"). Poda linhas antigas se passar do limite.
         """
-        inner = self.logs_text._textbox
+        inner = self.logs_text._textbox  # type: ignore[attr-defined]
         self.logs_text.configure(state="normal")
         for msg, levelname in chunks:
             ts_end = msg.find("  ")
@@ -1137,11 +1137,11 @@ class NFSEGuiApp(ctk.CTk):
 
     def _limpar_logs(self) -> None:
         self.logs_text.configure(state="normal")
-        self.logs_text._textbox.delete("1.0", "end")
+        self.logs_text._textbox.delete("1.0", "end")  # type: ignore[attr-defined]
         self.logs_text.configure(state="disabled")
 
     def _copiar_logs(self) -> None:
-        conteudo = self.logs_text._textbox.get("1.0", "end").strip()
+        conteudo = self.logs_text._textbox.get("1.0", "end").strip()  # type: ignore[attr-defined]
         if not conteudo:
             return
         self.clipboard_clear()
@@ -1477,7 +1477,7 @@ class NFSEGuiApp(ctk.CTk):
             return
         try:
             if sys.platform == "win32":
-                os.startfile(CONFIG_PATH)  # type: ignore[attr-defined]
+                os.startfile(str(CONFIG_PATH))  # type: ignore[attr-defined]
             elif sys.platform == "darwin":
                 subprocess.run(["open", str(CONFIG_PATH)], check=False)
             else:
@@ -1496,7 +1496,7 @@ class NFSEGuiApp(ctk.CTk):
             return
         try:
             if sys.platform == "win32":
-                os.startfile(pasta)  # type: ignore[attr-defined]
+                os.startfile(str(pasta))  # type: ignore[attr-defined]
             elif sys.platform == "darwin":
                 subprocess.run(["open", str(pasta)], check=False)
             else:

@@ -7,7 +7,7 @@ import math
 import time
 from typing import Callable
 
-import customtkinter as ctk
+import customtkinter as ctk  # type: ignore[import-untyped]
 import tkinter as tk
 
 from ui_animations import (
