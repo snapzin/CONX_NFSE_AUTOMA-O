@@ -11,6 +11,9 @@ hiddenimports = []
 hiddenimports += collect_submodules("babel")
 hiddenimports += ["PIL._tkinter_finder"]
 hiddenimports += collect_submodules("playwright")
+hiddenimports += ["tkinter", "customtkinter", "tkcalendar"]
+hiddenimports += ["cert_reader", "nfse_automacao", "config"]
+hiddenimports += ["ui_widgets", "ui_animations"]
 
 a = Analysis(
     ['gui_app.py'],
@@ -36,7 +39,7 @@ exe = EXE(
     debug=False,
     bootloader_ignore_signals=False,
     strip=False,
-    upx=True,
+    upx=False,
     console=False,
     disable_windowed_traceback=False,
     argv_emulation=False,
@@ -50,7 +53,7 @@ coll = COLLECT(
     a.binaries,
     a.datas,
     strip=False,
-    upx=True,
+    upx=False,
     upx_exclude=[],
     name='NFSE_Automacao',
     contents_directory='.',
