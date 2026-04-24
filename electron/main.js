@@ -1,0 +1,203 @@
+const { app, BrowserWindow, ipcMain } = require('electron');
+const { spawn } = require('child_process');
+const path = require('path');
+const fs = require('fs');
+
+let mainWindow;
+let pythonProcess;
+
+const API_PORT = 17432;
+const API_URL = `http://127.0.0.1:${API_PORT}`;
+
+// Detectar se está em modo produção (empacotado)
+const isProd = app.isPackaged;
+
+// Caminho para o executável Python
+const getPythonPath = () => {
+  if (isProd) {
+    // Em produção, Python está empacotado
+    return path.join(process.resourcesPath, 'python-embed', 'python.exe');
+  }
+  // Em desenvolvimento, usa python do PATH
+  return process.platform === 'win32' ? 'python' : 'python3';
+};
+
+const getServerScriptPath = () => {
+  return path.join(
+    isProd ? process.resourcesPath : __dirname,
+    '..', 'api', 'server.py'
+  );
+};
+
+// ============================================================================
+// Spawn Python backend
+// ============================================================================
+const startPythonBackend = () => {
+  return new Promise((resolve, reject) => {
+    const pythonPath = getPythonPath();
+    const scriptPath = getServerScriptPath();
+
+    console.log(`[Main] Iniciando Python: ${pythonPath}`);
+    console.log(`[Main] Script: ${scriptPath}`);
+
+    pythonProcess = spawn(pythonPath, [scriptPath], {
+      stdio: ['ignore', 'pipe', 'pipe'],
+      detached: false,
+    });
+
+    // Log do stdout/stderr do Python
+    pythonProcess.stdout.on('data', (data) => {
+      console.log(`[Python] ${data.toString().trim()}`);
+    });
+
+    pythonProcess.stderr.on('data', (data) => {
+      console.error(`[Python stderr] ${data.toString().trim()}`);
+    });
+
+    pythonProcess.on('error', (err) => {
+      console.error(`[Python] Erro ao iniciar: ${err}`);
+      reject(err);
+    });
+
+    // Polling /health até responder (máx 15s)
+    let retries = 0;
+    const maxRetries = 30; // 30 * 500ms = 15s
+
+    const checkHealth = async () => {
+      try {
+        const response = await fetch(`${API_URL}/health`);
+        if (response.ok) {
+          console.log('[Main] Backend respondendo');
+          resolve();
+          return;
+        }
+      } catch (e) {
+        // Esperado no início
+      }
+
+      retries++;
+      if (retries >= maxRetries) {
+        reject(new Error('Timeout ao inicializar backend'));
+        return;
+      }
+
+      setTimeout(checkHealth, 500);
+    };
+
+    checkHealth();
+  });
+};
+
+// ============================================================================
+// Criar janela principal
+// ============================================================================
+const createWindow = () => {
+  mainWindow = new BrowserWindow({
+    width: 1180,
+    height: 760,
+    minWidth: 980,
+    minHeight: 660,
+    webPreferences: {
+      preload: path.join(__dirname, 'preload.js'),
+      nodeIntegration: false,
+      contextIsolation: true,
+    },
+  });
+
+  const indexPath = path.join(__dirname, 'renderer', 'index.html');
+  mainWindow.loadFile(indexPath);
+
+  // DevTools em desenvolvimento
+  if (!isProd) {
+    mainWindow.webContents.openDevTools();
+  }
+
+  mainWindow.on('closed', () => {
+    mainWindow = null;
+  });
+};
+
+// ============================================================================
+// IPC handlers (comunicação renderer → main)
+// ============================================================================
+ipcMain.handle('api-call', async (event, method, endpoint, body) => {
+  try {
+    const options = {
+      method,
+      headers: { 'Content-Type': 'application/json' },
+    };
+
+    if (body) {
+      options.body = JSON.stringify(body);
+    }
+
+    const response = await fetch(`${API_URL}${endpoint}`, options);
+
+    if (!response.ok) {
+      const error = await response.text();
+      throw new Error(`HTTP ${response.status}: ${error}`);
+    }
+
+    return await response.json();
+  } catch (error) {
+    console.error(`[API Call] ${method} ${endpoint}:`, error);
+    throw error;
+  }
+});
+
+// ============================================================================
+// App lifecycle
+// ============================================================================
+app.on('ready', async () => {
+  try {
+    // Splash screen (janela pequena enquanto carrega)
+    const splashWindow = new BrowserWindow({
+      width: 480,
+      height: 320,
+      frame: false,
+      alwaysOnTop: true,
+      webPreferences: { nodeIntegration: false },
+    });
+
+    const splashPath = path.join(__dirname, 'splash.html');
+    if (fs.existsSync(splashPath)) {
+      splashWindow.loadFile(splashPath);
+    } else {
+      splashWindow.loadURL('data:text/html,<h1>Iniciando...</h1>');
+    }
+
+    // Inicia backend
+    console.log('[Main] Iniciando backend Python...');
+    await startPythonBackend();
+
+    // Fecha splash e abre main
+    splashWindow.close();
+    createWindow();
+  } catch (error) {
+    console.error('[Main] Erro fatal:', error);
+    app.quit();
+  }
+});
+
+app.on('window-all-closed', () => {
+  // Encerra processo Python ao fechar o app
+  if (pythonProcess) {
+    try {
+      if (process.platform === 'win32') {
+        require('child_process').exec(`taskkill /PID ${pythonProcess.pid} /T /F`);
+      } else {
+        process.kill(-pythonProcess.pid);
+      }
+    } catch (e) {
+      console.warn('[Main] Falha ao matar Python:', e);
+    }
+  }
+
+  app.quit();
+});
+
+app.on('activate', () => {
+  if (mainWindow === null) {
+    createWindow();
+  }
+});

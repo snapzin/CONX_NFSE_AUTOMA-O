@@ -1,0 +1,50 @@
+{
+  "name": "nfse-automacao",
+  "version": "2.3.0",
+  "description": "Automação NFSe com Electron + FastAPI",
+  "main": "main.js",
+  "homepage": "./",
+  "scripts": {
+    "start": "electron .",
+    "build": "electron-builder"
+  },
+  "keywords": ["nfse", "automacao", "certificado"],
+  "author": "CONX Contabilidade",
+  "license": "proprietary",
+  "devDependencies": {
+    "electron": "^29.0.0",
+    "electron-builder": "^24.6.4"
+  },
+  "build": {
+    "appId": "com.conx.nfse-automacao",
+    "productName": "NFSe Automacao",
+    "files": [
+      "main.js",
+      "preload.js",
+      "renderer/**/*",
+      "../api/**/*",
+      "../*.py",
+      "../config.py"
+    ],
+    "directories": {
+      "buildResources": "assets"
+    },
+    "win": {
+      "target": [
+        {
+          "target": "nsis",
+          "arch": [
+            "x64"
+          ]
+        }
+      ],
+      "icon": "assets/icon.ico"
+    },
+    "nsis": {
+      "oneClick": false,
+      "allowToChangeInstallationDirectory": true,
+      "createDesktopShortcut": true,
+      "createStartMenuShortcut": true
+    }
+  }
+}

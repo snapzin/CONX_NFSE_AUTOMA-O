@@ -1,0 +1,132 @@
+/* ========================================================================
+   Sidebar CSS
+   ======================================================================== */
+
+sidebar {
+  width: 220px;
+  background-color: var(--bg-sidebar);
+  border-right: 1px solid var(--border);
+  display: flex;
+  flex-direction: column;
+  overflow-y: auto;
+  flex-shrink: 0;
+}
+
+.sidebar-header {
+  padding: var(--sp-xl) var(--sp-lg) var(--sp-md);
+  border-bottom: 1px solid var(--border);
+}
+
+.logo {
+  font-size: 20px;
+  font-weight: bold;
+  color: var(--text-1);
+  margin-bottom: 4px;
+  letter-spacing: 1px;
+}
+
+.version {
+  font-size: 11px;
+  color: var(--text-2);
+  letter-spacing: 0.3px;
+}
+
+.sidebar-nav {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: var(--sp-md);
+}
+
+.nav-btn {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-md);
+  padding: var(--sp-md) var(--sp-lg);
+  background-color: transparent;
+  border: none;
+  color: var(--text-2);
+  cursor: pointer;
+  border-radius: 6px;
+  position: relative;
+  transition: all 150ms var(--ease-out);
+  font-size: 13px;
+  font-weight: 500;
+}
+
+.nav-btn:hover {
+  background-color: var(--bg-panel);
+  color: var(--text-1);
+  transform: none;
+}
+
+.nav-btn.active {
+  color: var(--text-1);
+  background-color: var(--bg-panel);
+}
+
+.nav-btn.active::before {
+  content: '';
+  position: absolute;
+  left: 0;
+  top: 0;
+  bottom: 0;
+  width: 3px;
+  background-color: var(--accent);
+  border-radius: 0 3px 3px 0;
+  animation: slideInLeft 200ms var(--ease-out);
+}
+
+@keyframes slideInLeft {
+  from { transform: scaleY(0); transform-origin: top; }
+  to { transform: scaleY(1); }
+}
+
+.nav-icon {
+  font-size: 14px;
+  display: inline-flex;
+  align-items: center;
+}
+
+.sidebar-footer {
+  padding: var(--sp-lg);
+  border-top: 1px solid var(--border);
+}
+
+.theme-label {
+  font-size: 11px;
+  color: var(--text-2);
+  font-weight: 600;
+  margin-bottom: 6px;
+  letter-spacing: 0.3px;
+  text-transform: uppercase;
+}
+
+.theme-selector {
+  display: flex;
+  gap: 4px;
+}
+
+.theme-btn {
+  flex: 1;
+  padding: 6px;
+  font-size: 11px;
+  background-color: var(--bg-card);
+  border: 1px solid var(--border);
+  color: var(--text-2);
+  border-radius: 4px;
+  cursor: pointer;
+  transition: all 150ms var(--ease-out);
+}
+
+.theme-btn:hover {
+  border-color: var(--accent);
+  color: var(--accent);
+}
+
+.theme-btn.active {
+  background-color: var(--accent);
+  color: white;
+  border-color: var(--accent);
+}
