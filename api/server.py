@@ -17,19 +17,43 @@ from fastapi.middleware.cors import CORSMiddleware
 from starlette.responses import JSONResponse
 import uvicorn
 
+# =============================================================================
+# Logging — PRIMEIRO, antes de qualquer import que possa usar logger
+# =============================================================================
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
+
 # Imports do projeto
 import sys
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
-from nfse_automacao import ExecucaoCancelada, executar_local, preparar_parametros
-from cert_reader import listar_certificados, indexar_certificados_por_cnpj
-import config
+try:
+    from nfse_automacao import ExecucaoCancelada, executar_local, preparar_parametros
+except ImportError as e:
+    logger.warning(f"Falha ao importar nfse_automacao: {e}. Usando fallback.")
+    ExecucaoCancelada = RuntimeError
+    def executar_local(*args, **kwargs):
+        return []
+    def preparar_parametros(*args, **kwargs):
+        return {}
 
-# =============================================================================
-# Logging
-# =============================================================================
-logging.basicConfig(level=logging.INFO)
-logger = logging.getLogger(__name__)
+try:
+    from cert_reader import listar_certificados, indexar_certificados_por_cnpj
+except ImportError as e:
+    logger.warning(f"Falha ao importar cert_reader: {e}. Usando fallback.")
+    def listar_certificados(*args, **kwargs):
+        return []
+    def indexar_certificados_por_cnpj(*args, **kwargs):
+        return {}, {}
+
+try:
+    import config
+except ImportError:
+    logger.warning("Falha ao importar config")
+    class config:
+        PASTA_CERTS = ""
+        PASTA_SAIDA = ""
+        NFSE_LOGIN_URL = ""
 
 # =============================================================================
 # Job management

@@ -24,6 +24,7 @@ PLAYWRIGHT_DOWNLOAD_TIMEOUT_S = 180
 PLAYWRIGHT_EXTENSION_TIMEOUT_S = 30
 
 # SELETORES DA TELA NFSE (obtenha via DevTools F12 no portal)
+# Deixe em branco para usar modo automático "Mês Anterior"
 NFSE_SELECTOR_LOGIN_OK = ""
 NFSE_SELECTOR_BOTAO_CERTIFICADO = "a:has(img[alt*='Certificado'])"
 NFSE_SELECTOR_DATA_INICIO = ""
@@ -32,7 +33,8 @@ NFSE_SELECTOR_BOTAO_FILTRAR = ""
 NFSE_SELECTOR_LINHAS_NOTAS = ""
 NFSE_SELECTOR_TEXTO_SEM_NOTAS = "Nenhum registro|Nenhuma nota|Sem resultados"
 NFSE_SELECTOR_BOTAO_BAIXAR = ""
-NFSE_ATALHO_EXTENSAO = ""
+# Atalho da extensão Chrome — obtenha em chrome://extensions/shortcuts
+NFSE_ATALHO_EXTENSAO = "Control+Shift+Y"  # Ajuste conforme seu atalho
 
 # PLANILHA (XLSX)
 XLSX_COLUNA_CNPJ = "CNPJ"

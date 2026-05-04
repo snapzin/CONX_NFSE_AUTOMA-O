@@ -93,7 +93,13 @@
   font-weight: 500;
 }
 
+.config-field-input-group {
+  display: flex;
+  gap: 8px;
+}
+
 .config-field input {
+  flex: 1;
   padding: 8px 12px;
   background-color: var(--bg-card);
   border: 1px solid var(--border);
@@ -107,6 +113,24 @@
   border-color: var(--accent);
   outline: none;
   background-color: rgba(42, 168, 137, 0.05);
+}
+
+.btn-browse {
+  padding: 8px 12px;
+  background-color: var(--bg-card);
+  border: 1px solid var(--border);
+  color: var(--text-2);
+  border-radius: 6px;
+  cursor: pointer;
+  transition: all 150ms var(--ease-out);
+  font-size: 14px;
+  flex-shrink: 0;
+}
+
+.btn-browse:hover {
+  border-color: var(--accent);
+  color: var(--accent);
+  background-color: rgba(42, 168, 137, 0.1);
 }
 
 .config-actions {

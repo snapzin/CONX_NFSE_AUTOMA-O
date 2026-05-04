@@ -38,18 +38,40 @@ class PageConfig {
         const value = values[key] || '';
         const fieldDiv = document.createElement('div');
         fieldDiv.className = 'config-field';
+
+        const isPath = type === 'path' || type === 'dir';
+        const inputType = type === 'secret' ? 'password' : 'text';
+
         fieldDiv.innerHTML = `
           <label>${label}</label>
-          <input type="${type === 'secret' ? 'password' : 'text'}"
-                 name="${key}"
-                 value="${value}"
-                 placeholder="${label}">
+          <div class="config-field-input-group">
+            <input type="${inputType}"
+                   name="${key}"
+                   value="${value}"
+                   placeholder="${label}"
+                   ${isPath ? 'readonly' : ''}>
+            ${isPath ? `<button class="btn-browse" data-key="${key}" data-type="${type}">📁</button>` : ''}
+          </div>
         `;
         sectionDiv.appendChild(fieldDiv);
       });
 
       container.appendChild(sectionDiv);
     });
+
+    // Attach browse listeners
+    document.querySelectorAll('.btn-browse').forEach(btn => {
+      btn.addEventListener('click', () => PageConfig.browsePath(btn.dataset.key, btn.dataset.type));
+    });
+  }
+
+  static async browsePath(key, type) {
+    const input = document.querySelector(`input[name="${key}"]`);
+    // Simula seleção de pasta (em produção, usaria Electron dialog)
+    const newPath = prompt(`Selecione o caminho para ${key}:\n(Digite o caminho completo)`, input.value);
+    if (newPath) {
+      input.value = newPath;
+    }
   }
 
   static attachListeners() {
