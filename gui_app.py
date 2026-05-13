@@ -1,16 +1,13 @@
 """
-gui_app.py - Interface grafica moderna para a Automacao NFSe.
+gui_app.py - Interface principal da Automação NFSe.
 
-Recursos:
-  - Design moderno baseado em customtkinter (dark/light)
-  - Navegacao lateral (Executar / Configuracoes / Sobre)
-  - Seletor de datas com calendario
-  - Painel de logs com filtro, cores por nivel e busca
-  - Edicao visual do config.py com salvamento seguro
-  - Indicadores de status em tempo real
+Layout:
+  Header (preto)  →  Stats (3 cards)  →  Controle Central  →
+  Duas colunas (Configurações Rápidas | Logs)  →  Rodapé
 """
 from __future__ import annotations
 
+import json
 import logging
 import os
 import queue
@@ -18,14 +15,14 @@ import re
 import subprocess
 import sys
 import threading
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import date, datetime
 from pathlib import Path
-from tkinter import messagebox
+from tkinter import messagebox, filedialog
 import tkinter as tk
 
-import customtkinter as ctk  # type: ignore[import-untyped]
-from tkcalendar import DateEntry  # type: ignore[import-untyped]
+import customtkinter as ctk
+from tkcalendar import DateEntry
 
 from cert_reader import indexar_certificados_por_cnpj, listar_certificados
 from nfse_automacao import ExecucaoCancelada, executar
@@ -41,1493 +38,1163 @@ from ui_widgets import (
 )
 import config
 
-
-APP_TITLE = "NFSe Automacao"
-APP_VERSION = "2.3"
+APP_TITLE  = "NFSe Automação"
+APP_VER    = "2.4"
 CONFIG_PATH = Path(__file__).resolve().with_name("config.py")
+STATS_PATH  = Path(__file__).resolve().with_name("runtime_settings.json")
 
 ctk.set_appearance_mode("dark")
 ctk.set_default_color_theme("dark-blue")
 
-UI_FONT = "Bahnschrift"
-UI_FONT_HEADING = "Bahnschrift SemiBold"
-UI_FONT_MONO = "Consolas"
+FONT       = "Bahnschrift"
+FONT_BOLD  = "Bahnschrift SemiBold"
+FONT_MONO  = "Consolas"
 
-
-# ============================================================================
-# Handler de logs
-# ============================================================================
-class QueueLogHandler(logging.Handler):
-    """Encaminha logs para uma fila, consumida pela UI."""
-
-    def __init__(self, output_queue: "queue.Queue[logging.LogRecord]") -> None:
-        super().__init__()
-        self.output_queue = output_queue
-
-    def emit(self, record: logging.LogRecord) -> None:
-        self.output_queue.put(record)
-
-
-# ============================================================================
-# Paleta e estilos auxiliares
-# ============================================================================
+# ── Paleta preto / branco / azul escuro ──────────────────────────────────────
 @dataclass(frozen=True)
 class Palette:
-    bg_sidebar: str = "#0f1724"
-    bg_main: str = "#0b1220"
-    bg_panel: str = "#111c2f"
-    bg_card: str = "#17243a"
-    accent: str = "#2aa889"
-    accent_hover: str = "#249479"
-    success: str = "#40cf84"
-    warning: str = "#f1b34f"
-    danger: str = "#e86a6a"
-    text_primary: str = "#eef4ff"
-    text_secondary: str = "#9db1ca"
-    border: str = "#263753"
+    header:        str = "#000000"
+    bg_app:        str = "#09111E"
+    bg_section:    str = "#0D1B2E"
+    bg_card:       str = "#0F2040"
+    accent:        str = "#0C447C"
+    accent_hover:  str = "#0D5499"
+    accent_light:  str = "#1565C0"
+    badge_bg:      str = "#0C2D52"
+    success:       str = "#22C55E"
+    warning:       str = "#F59E0B"
+    danger:        str = "#EF4444"
+    text_primary:  str = "#FFFFFF"
+    text_secondary:str = "#94A3B8"
+    border:        str = "#1B3050"
+    log_bg:        str = "#060E1A"
 
+P = Palette()
 
-PALETTE = Palette()
-
-
-LEVEL_COLORS = {
-    "DEBUG": "#8b95a5",
-    "INFO": "#e6edf3",
-    "WARNING": "#f1c40f",
-    "ERROR": "#ff6b6b",
-    "CRITICAL": "#ff3860",
+LOG_COLORS = {
+    "DEBUG":    "#64748B",
+    "INFO":     "#CBD5E1",
+    "WARNING":  "#F59E0B",
+    "ERROR":    "#EF4444",
+    "CRITICAL": "#FF3860",
+    "OK":       "#22C55E",
 }
 
+TIPS = [
+    "Configure PASTA_CERTS em Configurações antes de iniciar.",
+    "A extensão 'Baixar NFSe' deve estar instalada no Chrome.",
+    "Atalho Ctrl+Enter inicia a automação de qualquer página.",
+    "Ative 'Importar no Domínio Web' para automatizar o lançamento fiscal.",
+    "Use Ctrl+L para limpar os logs a qualquer momento.",
+    "O atalho da extensão padrão é Ctrl+Shift+Y — verifique em chrome://extensions/shortcuts.",
+]
 
-# ============================================================================
-# Aplicacao principal
-# ============================================================================
+# ── Handler de logs ──────────────────────────────────────────────────────────
+class QueueLogHandler(logging.Handler):
+    def __init__(self, q: "queue.Queue[logging.LogRecord]") -> None:
+        super().__init__()
+        self.q = q
+
+    def emit(self, record: logging.LogRecord) -> None:
+        self.q.put(record)
+
+
+# ── Helpers de stats persistidas ─────────────────────────────────────────────
+def _load_stats() -> dict:
+    try:
+        if STATS_PATH.exists():
+            data = json.loads(STATS_PATH.read_text(encoding="utf-8"))
+            return data if isinstance(data, dict) else {}
+    except Exception:
+        pass
+    return {}
+
+
+def _save_stats(patch: dict) -> None:
+    data = _load_stats()
+    data.update(patch)
+    try:
+        STATS_PATH.write_text(json.dumps(data, ensure_ascii=False, indent=2), encoding="utf-8")
+    except Exception:
+        pass
+
+
+# ═════════════════════════════════════════════════════════════════════════════
+# Janela principal
+# ═════════════════════════════════════════════════════════════════════════════
 class NFSEGuiApp(ctk.CTk):
-    """Janela principal da automacao NFSe."""
 
     def __init__(self) -> None:
         super().__init__()
-        self.title(f"{APP_TITLE} - v{APP_VERSION}")
-        self.geometry("1180x760")
-        self.minsize(980, 660)
-        self.configure(fg_color=PALETTE.bg_main)
+        self.title(f"{APP_TITLE} — v{APP_VER}")
+        self.geometry("1140x820")
+        self.minsize(920, 660)
+        self.configure(fg_color=P.bg_app)
 
-        self.log_queue: "queue.Queue[logging.LogRecord]" = queue.Queue()
-        self.running = False
-        self.cancel_event: threading.Event | None = None
-        self.current_page: str | None = None
-        self._log_filter_level = "ALL"
-        self._log_search = ""
+        self.log_queue: queue.Queue[logging.LogRecord] = queue.Queue()
+        self.running   = False
+        self.cancel_ev: threading.Event | None = None
+        self._tip_idx  = 0
+        self._log_filter = "ALL"
 
-        self._build_layout()
-        self._configure_logging()
-        self._drain_log_queue()
+        # stats acumuladas
+        s = _load_stats()
+        self._stat_empresas = s.get("total_empresas", 0)
+        self._stat_horas    = s.get("horas_economizadas", 0.0)
+        self._stat_sucesso  = s.get("taxa_sucesso", 0)
 
+        self._build_ui()
+        self._setup_logging()
+        self._poll_logs()
+        self._rotate_tip()
         self.protocol("WM_DELETE_WINDOW", self._on_close)
-        self._show_page("executar")
-
-        # atalhos
-        self.bind("<Control-Return>", lambda _e: self._on_executar())
-        self.bind("<Control-l>", lambda _e: self._limpar_logs())
+        self.bind("<Control-Return>", lambda _: self._on_run())
+        self.bind("<Control-l>",      lambda _: self._clear_logs())
 
         self.toasts = ToastManager(
             self,
             palette={
-                "bg": PALETTE.bg_card,
-                "border": PALETTE.border,
-                "text": PALETTE.text_primary,
-                "text_secondary": PALETTE.text_secondary,
-                "accent_info": PALETTE.accent,
-                "accent_success": PALETTE.success,
-                "accent_warning": PALETTE.warning,
-                "accent_error": PALETTE.danger,
+                "bg": P.bg_card, "border": P.border,
+                "text": P.text_primary, "text_secondary": P.text_secondary,
+                "accent_info": P.accent_light, "accent_success": P.success,
+                "accent_warning": P.warning,   "accent_error": P.danger,
             },
-            font_family=UI_FONT,
+            font_family=FONT,
         )
+        self.after(60, self._show_splash)
 
-        self.after(50, self._play_splash)
-
-    def _play_splash(self) -> None:
-        splash = SplashOverlay(
+    # ── Splash ────────────────────────────────────────────────────────────────
+    def _show_splash(self) -> None:
+        s = SplashOverlay(
             self,
-            title="NFSe Automacao",
-            subtitle=f"v{APP_VERSION} · pronto para emitir",
-            bg=PALETTE.bg_main,
-            accent=PALETTE.accent,
-            text_primary=PALETTE.text_primary,
-            text_secondary=PALETTE.text_secondary,
-            font_heading=UI_FONT_HEADING,
-            font=UI_FONT,
+            title=APP_TITLE,
+            subtitle=f"v{APP_VER}  ·  pronto para processar",
+            bg=P.bg_app, accent=P.accent_light,
+            text_primary=P.text_primary, text_secondary=P.text_secondary,
+            font_heading=FONT_BOLD, font=FONT,
         )
-        splash.play(
-            total_ms=1000,
-            on_done=lambda: self.toasts.show(
-                "Tudo pronto",
-                "Clique em 'Executar agora' para começar.",
-                kind="success",
-                duration_ms=3000,
-            ),
-        )
+        s.play(900, on_done=lambda: self.toasts.show(
+            "Interface pronta",
+            "Configure o período e clique em Iniciar.",
+            kind="info", duration_ms=3200,
+        ))
 
-    # ----------------------------------------------------------------- layout
-    def _build_layout(self) -> None:
-        self.grid_columnconfigure(1, weight=1)
+    # ── Construção da UI ──────────────────────────────────────────────────────
+    def _build_ui(self) -> None:
+        # Páginas empilhadas
         self.grid_rowconfigure(0, weight=1)
+        self.grid_columnconfigure(0, weight=1)
 
-        self._build_sidebar()
+        self._page_main   = self._make_main_page()
+        self._page_config = self._make_config_page()
+        self._page_sobre  = self._make_sobre_page()
 
-        self.main_area = ctk.CTkFrame(self, fg_color=PALETTE.bg_main, corner_radius=0)
-        self.main_area.grid(row=0, column=1, sticky="nsew")
-        self.main_area.grid_columnconfigure(0, weight=1)
-        self.main_area.grid_rowconfigure(2, weight=1)
+        for p in (self._page_main, self._page_config, self._page_sobre):
+            p.grid(row=0, column=0, sticky="nsew")
 
-        self._build_topbar()
-        self._build_transition_bar()
-        self._build_pages()
-        self._build_statusbar()
+        self._page_main.tkraise()
+        self._current_page = "main"
 
-    def _build_sidebar(self) -> None:
-        sidebar = ctk.CTkFrame(
-            self,
-            width=220,
-            fg_color=PALETTE.bg_sidebar,
-            corner_radius=0,
-        )
-        sidebar.grid(row=0, column=0, sticky="nsew")
-        sidebar.grid_propagate(False)
+    # ══════════════════════════════════════════════════════════════════════════
+    # PÁGINA PRINCIPAL
+    # ══════════════════════════════════════════════════════════════════════════
+    def _make_main_page(self) -> ctk.CTkFrame:
+        root = ctk.CTkScrollableFrame(self, fg_color=P.bg_app, scrollbar_button_color=P.border)
+        root.grid_columnconfigure(0, weight=1)
 
-        header = ctk.CTkFrame(sidebar, fg_color="transparent", height=110)
-        header.pack(fill="x", padx=18, pady=(24, 12))
+        self._build_header(root)
+        self._build_stats(root)
+        self._build_control(root)
+        self._build_bottom(root)
+        self._build_footer(root)
 
+        return root
+
+    # ── 1. HEADER ─────────────────────────────────────────────────────────────
+    def _build_header(self, parent: ctk.CTkScrollableFrame) -> None:
+        header = ctk.CTkFrame(parent, fg_color=P.header, corner_radius=0, height=64)
+        header.grid(row=0, column=0, sticky="ew")
+        header.grid_propagate(False)
+        header.grid_columnconfigure(1, weight=1)
+
+        # Logo + nome
+        logo_box = ctk.CTkFrame(header, fg_color="transparent")
+        logo_box.grid(row=0, column=0, sticky="w", padx=20, pady=12)
+
+        accent_bar = ctk.CTkFrame(logo_box, fg_color=P.accent, width=4, corner_radius=2)
+        accent_bar.pack(side="left", fill="y", padx=(0, 10))
+
+        name_box = ctk.CTkFrame(logo_box, fg_color="transparent")
+        name_box.pack(side="left")
         ctk.CTkLabel(
-            header,
-            text="NFSe",
-            font=ctk.CTkFont(family=UI_FONT_HEADING, size=26, weight="bold"),
-            text_color=PALETTE.text_primary,
-            anchor="w",
-        ).pack(fill="x")
+            name_box, text=APP_TITLE,
+            font=ctk.CTkFont(family=FONT_BOLD, size=18, weight="bold"),
+            text_color=P.text_primary,
+        ).pack(anchor="w")
         ctk.CTkLabel(
-            header,
-            text="Automacao",
-            font=ctk.CTkFont(family=UI_FONT, size=13),
-            text_color=PALETTE.text_secondary,
-            anchor="w",
-        ).pack(fill="x")
-        ctk.CTkLabel(
-            header,
-            text=f"v{APP_VERSION}",
-            font=ctk.CTkFont(family=UI_FONT, size=10),
-            text_color=PALETTE.text_secondary,
-            anchor="w",
-        ).pack(fill="x", pady=(4, 0))
+            name_box, text=f"v{APP_VER}  ·  CONX Contabilidade",
+            font=ctk.CTkFont(family=FONT, size=10),
+            text_color=P.text_secondary,
+        ).pack(anchor="w")
 
-        separator = ctk.CTkFrame(sidebar, fg_color=PALETTE.border, height=1)
-        separator.pack(fill="x", padx=18, pady=(6, 10))
+        # Botões direita
+        btn_box = ctk.CTkFrame(header, fg_color="transparent")
+        btn_box.grid(row=0, column=2, sticky="e", padx=16, pady=12)
 
-        self.nav_buttons: dict[str, AnimatedSidebarButton] = {}
-        nav_items = [
-            ("executar", "Executar", ""),
-            ("config", "Configuracoes", ""),
-            ("sobre", "Sobre", ""),
-        ]
-        for key, label, icon in nav_items:
-            btn = AnimatedSidebarButton(
-                sidebar,
-                text=label,
-                icon=icon,
-                command=lambda k=key: self._show_page(k),
-                accent=PALETTE.accent,
-                bg=PALETTE.bg_sidebar,
-                bg_hover=PALETTE.bg_panel,
-                bg_active=PALETTE.bg_panel,
-                text_primary=PALETTE.text_primary,
-                text_secondary=PALETTE.text_secondary,
-                font_heading=UI_FONT_HEADING,
+        def _hbtn(text: str, cmd, accent: bool = False) -> ctk.CTkButton:
+            return ctk.CTkButton(
+                btn_box, text=text, command=cmd,
+                height=34, width=110,
+                font=ctk.CTkFont(family=FONT, size=12),
+                fg_color=P.accent if accent else "transparent",
+                hover_color=P.accent_hover if accent else P.bg_card,
+                border_width=0 if accent else 1,
+                border_color=P.border,
+                text_color=P.text_primary,
+                corner_radius=8,
             )
-            btn.pack(fill="x", padx=12, pady=4)
-            self.nav_buttons[key] = btn
 
-        footer = ctk.CTkFrame(sidebar, fg_color="transparent")
-        footer.pack(side="bottom", fill="x", padx=16, pady=16)
-
-        ctk.CTkLabel(
-            footer,
-            text="Tema",
-            font=ctk.CTkFont(family=UI_FONT_HEADING, size=11, weight="bold"),
-            text_color=PALETTE.text_secondary,
-            anchor="w",
-        ).pack(fill="x")
-
-        self.theme_selector = ctk.CTkSegmentedButton(
-            footer,
-            values=["Escuro", "Claro"],
-            command=self._on_theme_change,
-            fg_color=PALETTE.bg_panel,
-            selected_color=PALETTE.accent,
-            selected_hover_color=PALETTE.accent_hover,
-            font=ctk.CTkFont(family=UI_FONT, size=12),
+        # status badge no header
+        self._hdr_badge_frame = ctk.CTkFrame(btn_box, fg_color="transparent")
+        self._hdr_badge_frame.pack(side="left", padx=(0, 14))
+        self._hdr_pulse = PulseBadge(self._hdr_badge_frame, color=P.success, size=12, bg=P.header)
+        self._hdr_pulse.pack(side="left", padx=(0, 6))
+        self._hdr_status_lbl = ctk.CTkLabel(
+            self._hdr_badge_frame, text="Pronto",
+            font=ctk.CTkFont(family=FONT_BOLD, size=12, weight="bold"),
+            text_color=P.success,
         )
-        self.theme_selector.set("Escuro")
-        self.theme_selector.pack(fill="x", pady=(4, 0))
+        self._hdr_status_lbl.pack(side="left")
 
-    def _build_topbar(self) -> None:
-        topbar = ctk.CTkFrame(
-            self.main_area,
-            fg_color=PALETTE.bg_sidebar,
-            height=68,
-            corner_radius=0,
-            border_width=1,
-            border_color=PALETTE.border,
+        _hbtn("Configurações", lambda: self._nav("config")).pack(side="left", padx=4)
+        _hbtn("Sobre",         lambda: self._nav("sobre")).pack(side="left", padx=4)
+
+    # ── 2. STATS CARDS ────────────────────────────────────────────────────────
+    def _build_stats(self, parent: ctk.CTkScrollableFrame) -> None:
+        row = ctk.CTkFrame(parent, fg_color="transparent")
+        row.grid(row=1, column=0, sticky="ew", padx=24, pady=(20, 0))
+        for i in range(3):
+            row.grid_columnconfigure(i, weight=1, uniform="stat")
+
+        kw = dict(
+            bg_color=P.bg_card, bg_hover="#122848",
+            border_color=P.border,
+            text_primary=P.text_primary, text_secondary=P.text_secondary,
+            font_heading=FONT_BOLD,
         )
-        topbar.grid(row=0, column=0, sticky="ew")
-        topbar.grid_propagate(False)
-
-        self.page_title_var = tk.StringVar(value="Executar")
-        title = ctk.CTkLabel(
-            topbar,
-            textvariable=self.page_title_var,
-            font=ctk.CTkFont(family=UI_FONT_HEADING, size=20, weight="bold"),
-            text_color=PALETTE.text_primary,
+        self._card_empresas = AnimatedStatCard(
+            row, "Empresas Processadas",
+            str(self._stat_empresas), P.accent_light, **kw,
         )
-        title.pack(side="left", padx=24, pady=16)
+        self._card_empresas.grid(row=0, column=0, sticky="ew", padx=(0, 8))
 
-        status_box = ctk.CTkFrame(topbar, fg_color="transparent")
-        status_box.pack(side="right", padx=24, pady=16)
-
-        self.topbar_status = ctk.CTkLabel(
-            status_box,
-            text="Pronto",
-            font=ctk.CTkFont(family=UI_FONT_HEADING, size=12, weight="bold"),
-            text_color=PALETTE.success,
+        self._card_horas = AnimatedStatCard(
+            row, "Tempo Economizado",
+            f"{self._stat_horas:.1f}h", P.accent_light, **kw,
         )
-        self.topbar_status.pack(side="right")
+        self._card_horas.grid(row=0, column=1, sticky="ew", padx=8)
 
-        self.status_badge = PulseBadge(
-            status_box,
-            color=PALETTE.success,
-            size=14,
-            bg=PALETTE.bg_sidebar,
+        self._card_sucesso = AnimatedStatCard(
+            row, "Taxa de Sucesso",
+            f"{self._stat_sucesso}%", P.accent_light, **kw,
         )
-        self.status_badge.pack(side="right", padx=(0, 8))
+        self._card_sucesso.grid(row=0, column=2, sticky="ew", padx=(8, 0))
 
-    def _build_transition_bar(self) -> None:
-        self.transition_bar = PageTransitionBar(
-            self.main_area,
-            color=PALETTE.accent,
-            height=2,
-            bg=PALETTE.bg_main,
-        )
-        self.transition_bar.grid(row=1, column=0, sticky="ew")
-
-    def _build_pages(self) -> None:
-        self.page_container = ctk.CTkFrame(self.main_area, fg_color=PALETTE.bg_main, corner_radius=0)
-        self.page_container.grid(row=2, column=0, sticky="nsew")
-        self.page_container.grid_columnconfigure(0, weight=1)
-        self.page_container.grid_rowconfigure(0, weight=1)
-
-        self.pages: dict[str, ctk.CTkFrame] = {}
-        self.pages["executar"] = self._build_page_executar()
-        self.pages["config"] = self._build_page_config()
-        self.pages["sobre"] = self._build_page_sobre()
-
-        for page in self.pages.values():
-            page.grid(row=0, column=0, sticky="nsew")
-
-    def _build_statusbar(self) -> None:
-        bar = ctk.CTkFrame(
-            self.main_area,
-            fg_color=PALETTE.bg_sidebar,
-            height=30,
-            corner_radius=0,
-            border_width=1,
-            border_color=PALETTE.border,
-        )
-        bar.grid(row=3, column=0, sticky="ew")
-        bar.grid_propagate(False)
-
-        self.statusbar_var = tk.StringVar(value="Pronto para executar.")
-        ctk.CTkLabel(
-            bar,
-            textvariable=self.statusbar_var,
-            font=ctk.CTkFont(family=UI_FONT, size=11),
-            text_color=PALETTE.text_secondary,
-        ).pack(side="left", padx=16)
-
-        ctk.CTkLabel(
-            bar,
-            text="Ctrl+Enter: executar  |  Ctrl+L: limpar logs",
-            font=ctk.CTkFont(family=UI_FONT, size=11),
-            text_color=PALETTE.text_secondary,
-        ).pack(side="right", padx=16)
-
-    # ---------------------------------------------------------------- pagina executar
-    def _build_page_executar(self) -> ctk.CTkFrame:
-        page = ctk.CTkFrame(self.page_container, fg_color=PALETTE.bg_main)
-        page.grid_columnconfigure(0, weight=1)
-        page.grid_rowconfigure(2, weight=1)
-
-        # ---- cards
-        cards = ctk.CTkFrame(page, fg_color="transparent")
-        cards.grid(row=0, column=0, sticky="ew", padx=24, pady=(22, 10))
-        for i in range(4):
-            cards.grid_columnconfigure(i, weight=1, uniform="card")
-
-        card_kwargs = dict(
-            bg_color=PALETTE.bg_card,
-            bg_hover="#1d2d48",
-            border_color=PALETTE.border,
-            text_primary=PALETTE.text_primary,
-            text_secondary=PALETTE.text_secondary,
-            font_heading=UI_FONT_HEADING,
-        )
-
-        self.card_status = AnimatedStatCard(cards, "Status", "Pronto", PALETTE.success, **card_kwargs)
-        self.card_status.grid(row=0, column=0, sticky="ew", padx=(0, 8))
-
-        self.card_periodo = AnimatedStatCard(
-            cards, "Periodo", self._periodo_padrao_str(), PALETTE.accent, **card_kwargs
-        )
-        self.card_periodo.grid(row=0, column=1, sticky="ew", padx=8)
-
-        self.card_cnpjs = AnimatedStatCard(cards, "CNPJs Filtro", "Todos", PALETTE.warning, **card_kwargs)
-        self.card_cnpjs.grid(row=0, column=2, sticky="ew", padx=8)
-
-        self.card_ultima = AnimatedStatCard(
-            cards, "Ultima execucao", "-", PALETTE.text_secondary, **card_kwargs
-        )
-        self.card_ultima.grid(row=0, column=3, sticky="ew", padx=(8, 0))
-
-        # ---- formulario
-        form = ctk.CTkFrame(
-            page,
-            fg_color=PALETTE.bg_panel,
-            corner_radius=14,
-            border_width=1,
-            border_color=PALETTE.border,
-        )
-        form.grid(row=1, column=0, sticky="ew", padx=24, pady=8)
-        form.grid_columnconfigure(0, weight=1)
-        form.grid_columnconfigure(1, weight=1)
-
-        ctk.CTkLabel(
-            form,
-            text="Parametros de execucao",
-            font=ctk.CTkFont(family=UI_FONT_HEADING, size=15, weight="bold"),
-            text_color=PALETTE.text_primary,
-            anchor="w",
-        ).grid(row=0, column=0, columnspan=2, sticky="w", padx=16, pady=(14, 4))
-
-        ctk.CTkLabel(
-            form,
-            text="Defina o periodo e, opcionalmente, restrinja os CNPJs a serem processados.",
-            font=ctk.CTkFont(family=UI_FONT, size=11),
-            text_color=PALETTE.text_secondary,
-            anchor="w",
-        ).grid(row=1, column=0, columnspan=2, sticky="w", padx=16)
-
-        # periodo
-        periodo_box = ctk.CTkFrame(
-            form,
-            fg_color=PALETTE.bg_card,
-            corner_radius=12,
-            border_width=1,
-            border_color=PALETTE.border,
-        )
-        periodo_box.grid(row=2, column=0, sticky="nsew", padx=(16, 8), pady=12)
-        periodo_box.grid_columnconfigure((0, 1), weight=1)
-
-        ctk.CTkLabel(
-            periodo_box,
-            text="PERIODO",
-            font=ctk.CTkFont(family=UI_FONT_HEADING, size=10, weight="bold"),
-            text_color=PALETTE.text_secondary,
-            anchor="w",
-        ).grid(row=0, column=0, columnspan=2, sticky="w", padx=12, pady=(10, 0))
-
-        self.usar_mes_anterior = tk.BooleanVar(value=True)
-        self.sw_mes_anterior = ctk.CTkSwitch(
-            periodo_box,
-            text="Usar mes anterior automaticamente",
-            variable=self.usar_mes_anterior,
-            onvalue=True,
-            offvalue=False,
-            command=self._toggle_data_entries,
-            progress_color=PALETTE.accent,
-            font=ctk.CTkFont(family=UI_FONT, size=12),
-        )
-        self.sw_mes_anterior.grid(row=1, column=0, columnspan=2, sticky="w", padx=12, pady=(8, 10))
-
-        ctk.CTkLabel(
-            periodo_box,
-            text="Data inicio",
-            font=ctk.CTkFont(family=UI_FONT, size=11),
-            text_color=PALETTE.text_secondary,
-        ).grid(row=2, column=0, sticky="w", padx=12)
-        ctk.CTkLabel(
-            periodo_box,
-            text="Data fim",
-            font=ctk.CTkFont(size=11),
-            text_color=PALETTE.text_secondary,
-        ).grid(row=2, column=1, sticky="w", padx=12)
-
-        self.data_inicio_entry = DateEntry(
-            periodo_box,
-            date_pattern="dd/mm/yyyy",
-            locale="pt_BR",
-            width=14,
-            background=PALETTE.accent,
-            foreground="white",
-            borderwidth=0,
-            font=(UI_FONT, 11),
-        )
-        self.data_inicio_entry.grid(row=3, column=0, sticky="ew", padx=12, pady=(2, 12))
-
-        self.data_fim_entry = DateEntry(
-            periodo_box,
-            date_pattern="dd/mm/yyyy",
-            locale="pt_BR",
-            width=14,
-            background=PALETTE.accent,
-            foreground="white",
-            borderwidth=0,
-            font=(UI_FONT, 11),
-        )
-        self.data_fim_entry.grid(row=3, column=1, sticky="ew", padx=12, pady=(2, 12))
-
-        self._toggle_data_entries()
-
-        # cnpjs
-        cnpjs_box = ctk.CTkFrame(
-            form,
-            fg_color=PALETTE.bg_card,
-            corner_radius=12,
-            border_width=1,
-            border_color=PALETTE.border,
-        )
-        cnpjs_box.grid(row=2, column=1, sticky="nsew", padx=(8, 16), pady=12)
-        cnpjs_box.grid_columnconfigure(0, weight=1)
-        cnpjs_box.grid_rowconfigure(2, weight=1)
-
-        ctk.CTkLabel(
-            cnpjs_box,
-            text="CNPJs (opcional)",
-            font=ctk.CTkFont(family=UI_FONT_HEADING, size=10, weight="bold"),
-            text_color=PALETTE.text_secondary,
-            anchor="w",
-        ).grid(row=0, column=0, sticky="w", padx=12, pady=(10, 0))
-
-        ctk.CTkLabel(
-            cnpjs_box,
-            text="Deixe em branco para processar todos. Separe por espaco, virgula ou linha.",
-            font=ctk.CTkFont(family=UI_FONT, size=10),
-            text_color=PALETTE.text_secondary,
-            anchor="w",
-            wraplength=420,
-            justify="left",
-        ).grid(row=1, column=0, sticky="w", padx=12, pady=(0, 4))
-
-        self.cnpjs_text = ctk.CTkTextbox(
-            cnpjs_box,
-            height=90,
-            font=ctk.CTkFont(family=UI_FONT_MONO, size=11),
-            fg_color=PALETTE.bg_main,
-            border_color=PALETTE.border,
-            border_width=1,
-            corner_radius=8,
-        )
-        self.cnpjs_text.grid(row=2, column=0, sticky="nsew", padx=12, pady=(0, 12))
-        self.cnpjs_text.bind("<KeyRelease>", lambda _e: self._update_cnpj_card())
-
-        # acoes
-        actions = ctk.CTkFrame(form, fg_color="transparent")
-        actions.grid(row=3, column=0, columnspan=2, sticky="ew", padx=16, pady=(0, 14))
-
-        self.executar_btn = GlowButton(
-            actions,
-            text="Executar agora",
-            command=self._on_executar,
-            height=42,
-            font=ctk.CTkFont(family=UI_FONT_HEADING, size=14, weight="bold"),
-            fg_color=PALETTE.accent,
-            hover_color=PALETTE.accent_hover,
-            border_color=PALETTE.accent,
-            corner_radius=10,
-            glow_color=PALETTE.success,
-        )
-        self.executar_btn.pack(side="left")
-        self.executar_btn.start_glow(base=PALETTE.accent, peak=PALETTE.success)
-
-        self.exec_spinner = Spinner(
-            actions,
-            size=26,
-            thickness=3,
-            color=PALETTE.success,
-            bg=PALETTE.bg_panel,
-        )
-
-        self.cancelar_btn = ctk.CTkButton(
-            actions,
-            text="Cancelar",
-            command=self._on_cancelar,
-            height=42,
-            width=120,
-            font=ctk.CTkFont(family=UI_FONT_HEADING, size=12, weight="bold"),
-            fg_color=PALETTE.danger,
-            hover_color="#c0392b",
-            corner_radius=10,
-            state="disabled",
-        )
-        self.cancelar_btn.pack(side="left", padx=(8, 0))
-
-        self.contar_certs_btn = ctk.CTkButton(
-            actions,
-            text="Contar certificados",
-            command=self._on_contar_certificados,
-            height=42,
-            width=170,
-            font=ctk.CTkFont(family=UI_FONT, size=12),
-            fg_color="transparent",
-            border_width=1,
-            border_color=PALETTE.border,
-            text_color=PALETTE.text_secondary,
-            hover_color=PALETTE.bg_card,
-            corner_radius=10,
-        )
-        self.contar_certs_btn.pack(side="left", padx=(8, 0))
-
-        ctk.CTkButton(
-            actions,
-            text="Limpar logs",
-            command=self._limpar_logs,
-            height=42,
-            width=120,
-            font=ctk.CTkFont(size=12),
-            fg_color="transparent",
-            border_width=1,
-            border_color=PALETTE.border,
-            text_color=PALETTE.text_secondary,
-            hover_color=PALETTE.bg_card,
-            corner_radius=10,
-        ).pack(side="left", padx=(8, 0))
-
-        ctk.CTkButton(
-            actions,
-            text="Abrir pasta de saida",
-            command=self._abrir_pasta_saida,
-            height=42,
-            width=160,
-            font=ctk.CTkFont(family=UI_FONT, size=12),
-            fg_color="transparent",
-            border_width=1,
-            border_color=PALETTE.border,
-            text_color=PALETTE.text_secondary,
-            hover_color=PALETTE.bg_card,
-            corner_radius=10,
-        ).pack(side="left", padx=(8, 0))
-
-        self.progress = ctk.CTkProgressBar(
-            actions,
-            height=12,
-            progress_color=PALETTE.accent,
-            fg_color=PALETTE.bg_main,
-            corner_radius=6,
-        )
-        self.progress.pack(side="right", fill="x", expand=True, padx=(12, 0))
-        self.progress.set(0)
-
-        # ---- logs
-        self._build_logs_panel(page)
-        return page
-
-    def _build_logs_panel(self, parent: ctk.CTkFrame) -> None:
-        logs_frame = ctk.CTkFrame(
-            parent,
-            fg_color=PALETTE.bg_panel,
-            corner_radius=14,
-            border_width=1,
-            border_color=PALETTE.border,
-        )
-        logs_frame.grid(row=2, column=0, sticky="nsew", padx=24, pady=(8, 16))
-        logs_frame.grid_columnconfigure(0, weight=1)
-        logs_frame.grid_rowconfigure(1, weight=1)
-
-        header = ctk.CTkFrame(logs_frame, fg_color="transparent")
-        header.grid(row=0, column=0, sticky="ew", padx=14, pady=(12, 6))
-        header.grid_columnconfigure(2, weight=1)
-
-        ctk.CTkLabel(
-            header,
-            text="Logs de execucao",
-            font=ctk.CTkFont(family=UI_FONT_HEADING, size=13, weight="bold"),
-            text_color=PALETTE.text_primary,
-        ).grid(row=0, column=0, sticky="w")
-
-        self.log_level_filter = ctk.CTkSegmentedButton(
-            header,
-            values=["ALL", "INFO", "WARNING", "ERROR"],
-            command=lambda v: self._set_log_filter(v),
-            fg_color=PALETTE.bg_card,
-            selected_color=PALETTE.accent,
-            selected_hover_color=PALETTE.accent_hover,
-            font=ctk.CTkFont(family=UI_FONT, size=11),
-        )
-        self.log_level_filter.set("ALL")
-        self.log_level_filter.grid(row=0, column=1, sticky="w", padx=(12, 0))
-
-        self.log_search_entry = ctk.CTkEntry(
-            header,
-            placeholder_text="Buscar nos logs...",
-            height=28,
-            fg_color=PALETTE.bg_card,
-            border_color=PALETTE.border,
-            font=ctk.CTkFont(family=UI_FONT, size=11),
-        )
-        self.log_search_entry.grid(row=0, column=2, sticky="ew", padx=12)
-        self.log_search_entry.bind("<KeyRelease>", lambda _e: self._on_log_search())
-
-        ctk.CTkButton(
-            header,
-            text="Copiar",
-            command=self._copiar_logs,
-            width=72,
-            height=28,
-            fg_color="transparent",
-            border_width=1,
-            border_color=PALETTE.border,
-            text_color=PALETTE.text_secondary,
-            hover_color=PALETTE.bg_card,
-            font=ctk.CTkFont(family=UI_FONT, size=11),
-        ).grid(row=0, column=3, sticky="e")
-
-        self.logs_text = ctk.CTkTextbox(
-            logs_frame,
-            fg_color=PALETTE.bg_main,
-            border_width=0,
-            corner_radius=8,
-            font=ctk.CTkFont(family=UI_FONT_MONO, size=11),
-        )
-        self.logs_text.grid(row=1, column=0, sticky="nsew", padx=14, pady=(0, 12))
-        self.logs_text.configure(state="disabled")
-
-        inner = self.logs_text._textbox  # type: ignore[attr-defined]  # tk.Text real
-        for level, color in LEVEL_COLORS.items():
-            inner.tag_configure(level, foreground=color)  # type: ignore[no-untyped-call]
-        inner.tag_configure("TIMESTAMP", foreground=PALETTE.text_secondary)  # type: ignore[no-untyped-call]
-        inner.tag_configure("MATCH", background="#3a4b6b")  # type: ignore[no-untyped-call]
-
-    # ---------------------------------------------------------------- pagina config
-    def _build_page_config(self) -> ctk.CTkFrame:
-        page = ctk.CTkFrame(self.page_container, fg_color=PALETTE.bg_main)
-        page.grid_columnconfigure(0, weight=1)
-        page.grid_rowconfigure(0, weight=1)
-
-        scroll = ctk.CTkScrollableFrame(
-            page,
-            fg_color=PALETTE.bg_main,
-            label_text="",
-        )
-        scroll.grid(row=0, column=0, sticky="nsew", padx=24, pady=16)
-        scroll.grid_columnconfigure(0, weight=1)
-
-        self.config_fields: dict[str, tk.StringVar] = {}
-        self.config_widgets: dict[str, ctk.CTkBaseClass] = {}
-
-        secoes = [
-            (
-                "Caminhos locais",
-                "",
-                [
-                    ("XLSX_PATH", "Planilha de clientes", "path"),
-                    ("PASTA_CERTS", "Pasta de certificados", "dir"),
-                    ("PASTA_SAIDA", "Pasta de saida", "dir"),
-                    ("CHROME_USER_DATA_DIR", "Perfil Chrome", "dir"),
-                    ("CHROME_EXTENSION_DIR", "Pasta da extensao", "dir"),
-                ],
-            ),
-            (
-                "Portal NFSe / Playwright",
-                "",
-                [
-                    ("NFSE_LOGIN_URL", "URL de login", "text"),
-                    ("NFSE_EMITIDAS_URL", "URL de notas emitidas", "text"),
-                    ("AUTOSELECT_CERTIFICATE_PATTERNS", "AutoSelectCertificateForUrls", "text"),
-                    ("CHROME_CHANNEL", "Canal do browser", "text"),
-                    ("CHROME_EXECUTABLE_PATH", "Executavel Chrome (opcional)", "path"),
-                    ("PLAYWRIGHT_HEADLESS", "Headless (True/False)", "text"),
-                    ("PLAYWRIGHT_TIMEOUT_MS", "Timeout padrao (ms)", "int"),
-                    ("PLAYWRIGHT_LOGIN_TIMEOUT_S", "Timeout login (s)", "int"),
-                    ("PLAYWRIGHT_DOWNLOAD_TIMEOUT_S", "Timeout download (s)", "int"),
-                ],
-            ),
-            (
-                "Seletores e extensao",
-                "",
-                [
-                    ("NFSE_SELECTOR_LOGIN_OK", "Seletor de login OK", "text"),
-                    ("NFSE_SELECTOR_BOTAO_CERTIFICADO", "Botao acesso certificado", "text"),
-                    ("NFSE_SELECTOR_DATA_INICIO", "Campo data inicio", "text"),
-                    ("NFSE_SELECTOR_DATA_FIM", "Campo data fim", "text"),
-                    ("NFSE_SELECTOR_BOTAO_FILTRAR", "Botao filtrar", "text"),
-                    ("NFSE_SELECTOR_LINHAS_NOTAS", "Linhas da tabela de notas", "text"),
-                    ("NFSE_SELECTOR_TEXTO_SEM_NOTAS", "Textos de sem notas", "text"),
-                    ("NFSE_SELECTOR_BOTAO_BAIXAR", "Botao da extensao", "text"),
-                    ("NFSE_ATALHO_EXTENSAO", "Atalho da extensao", "text"),
-                ],
-            ),
-            (
-                "E-mail (Zoho SMTP)",
-                "",
-                [
-                    ("ZOHO_SMTP_HOST", "Host SMTP", "text"),
-                    ("ZOHO_SMTP_PORT", "Porta SMTP", "int"),
-                    ("ZOHO_SMTP_USER", "Usuario", "text"),
-                    ("ZOHO_SMTP_PASSWORD", "Senha", "secret"),
-                    ("ZOHO_EMAIL_FROM", "Remetente", "text"),
-                    ("ZOHO_EMAIL_TO", "Destinatario(s)", "text"),
-                ],
-            ),
-        ]
-
-        row = 0
-        for titulo, icone, campos in secoes:
-            section = ctk.CTkFrame(
-                scroll,
-                fg_color=PALETTE.bg_panel,
-                corner_radius=14,
-                border_width=1,
-                border_color=PALETTE.border,
-            )
-            section.grid(row=row, column=0, sticky="ew", pady=(0, 12))
-            section.grid_columnconfigure(1, weight=1)
-
-            ctk.CTkLabel(
-                section,
-                text=titulo,
-                font=ctk.CTkFont(family=UI_FONT_HEADING, size=14, weight="bold"),
-                text_color=PALETTE.text_primary,
-                anchor="w",
-            ).grid(row=0, column=0, columnspan=3, sticky="w", padx=16, pady=(12, 8))
-
-            for i, (chave, label, tipo) in enumerate(campos, start=1):
-                ctk.CTkLabel(
-                    section,
-                    text=label,
-                    font=ctk.CTkFont(family=UI_FONT, size=11),
-                    text_color=PALETTE.text_secondary,
-                    anchor="w",
-                    width=180,
-                ).grid(row=i, column=0, sticky="w", padx=(16, 8), pady=4)
-
-                var = tk.StringVar(value=str(getattr(config, chave, "")))
-                self.config_fields[chave] = var
-
-                entry = ctk.CTkEntry(
-                    section,
-                    textvariable=var,
-                    fg_color=PALETTE.bg_card,
-                    border_color=PALETTE.border,
-                    height=32,
-                    font=ctk.CTkFont(family=UI_FONT, size=11),
-                    show="•" if tipo == "secret" else None,
-                )
-                entry.grid(row=i, column=1, sticky="ew", padx=8, pady=4)
-                self.config_widgets[chave] = entry
-
-                if tipo in ("path", "dir"):
-                    ctk.CTkButton(
-                        section,
-                        text="…",
-                        width=32,
-                        height=32,
-                        fg_color="transparent",
-                        border_width=1,
-                        border_color=PALETTE.border,
-                        text_color=PALETTE.text_secondary,
-                        hover_color=PALETTE.bg_card,
-                        command=lambda k=chave, t=tipo: self._browse_path(k, t),
-                    ).grid(row=i, column=2, sticky="e", padx=(0, 16), pady=4)
-                elif tipo == "secret":
-                    ctk.CTkButton(
-                        section,
-                        text="Ver",
-                        width=32,
-                        height=32,
-                        fg_color="transparent",
-                        border_width=1,
-                        border_color=PALETTE.border,
-                        text_color=PALETTE.text_secondary,
-                        hover_color=PALETTE.bg_card,
-                        command=lambda e=entry: self._toggle_secret(e),
-                    ).grid(row=i, column=2, sticky="e", padx=(0, 16), pady=4)
-
-            ctk.CTkFrame(section, fg_color="transparent", height=8).grid(
-                row=len(campos) + 1, column=0, columnspan=3
-            )
-            row += 1
-
-        # rodape
-        footer = ctk.CTkFrame(scroll, fg_color="transparent")
-        footer.grid(row=row, column=0, sticky="ew", pady=(4, 20))
-
-        ctk.CTkButton(
-            footer,
-            text="Salvar alteracoes",
-            command=self._salvar_config,
-            height=40,
-            font=ctk.CTkFont(family=UI_FONT_HEADING, size=13, weight="bold"),
-            fg_color=PALETTE.success,
-            hover_color="#27ae60",
-            corner_radius=10,
-        ).pack(side="left")
-
-        ctk.CTkButton(
-            footer,
-            text="Recarregar do disco",
-            command=self._recarregar_config,
-            height=40,
-            fg_color="transparent",
-            border_width=1,
-            border_color=PALETTE.border,
-            text_color=PALETTE.text_secondary,
-            hover_color=PALETTE.bg_card,
-            corner_radius=10,
-        ).pack(side="left", padx=(8, 0))
-
-        ctk.CTkButton(
-            footer,
-            text="Abrir no editor",
-            command=self._abrir_config,
-            height=40,
-            fg_color="transparent",
-            border_width=1,
-            border_color=PALETTE.border,
-            text_color=PALETTE.text_secondary,
-            hover_color=PALETTE.bg_card,
-            corner_radius=10,
-        ).pack(side="left", padx=(8, 0))
-
-        return page
-
-    # ---------------------------------------------------------------- pagina sobre
-    def _build_page_sobre(self) -> ctk.CTkFrame:
-        page = ctk.CTkFrame(self.page_container, fg_color=PALETTE.bg_main)
-        page.grid_columnconfigure(0, weight=1)
-        page.grid_rowconfigure(0, weight=1)
-
+    # ── 3. PAINEL CENTRAL DE CONTROLE ─────────────────────────────────────────
+    def _build_control(self, parent: ctk.CTkScrollableFrame) -> None:
         card = ctk.CTkFrame(
-            page,
-            fg_color=PALETTE.bg_panel,
-            corner_radius=18,
-            border_width=1,
-            border_color=PALETTE.border,
+            parent,
+            fg_color=P.bg_section,
+            corner_radius=16,
+            border_width=1, border_color=P.border,
         )
-        card.grid(row=0, column=0, sticky="nsew", padx=120, pady=60)
+        card.grid(row=2, column=0, sticky="ew", padx=24, pady=16)
+        card.grid_columnconfigure(0, weight=1)
+
+        # Badge de status
+        badge_row = ctk.CTkFrame(card, fg_color="transparent")
+        badge_row.grid(row=0, column=0, pady=(18, 8))
+
+        self._status_badge_bg = ctk.CTkFrame(
+            badge_row,
+            fg_color=P.badge_bg,
+            corner_radius=20,
+        )
+        self._status_badge_bg.pack()
+        self._status_dot = PulseBadge(
+            self._status_badge_bg, color=P.success, size=10, bg=P.badge_bg,
+        )
+        self._status_dot.pack(side="left", padx=(14, 6), pady=8)
+        self._status_txt = ctk.CTkLabel(
+            self._status_badge_bg,
+            text="Pronto para iniciar",
+            font=ctk.CTkFont(family=FONT_BOLD, size=12, weight="bold"),
+            text_color=P.success,
+        )
+        self._status_txt.pack(side="left", padx=(0, 14), pady=8)
+
+        # Botão grande
+        btn_area = ctk.CTkFrame(card, fg_color="transparent")
+        btn_area.grid(row=1, column=0, pady=4)
+
+        self._run_btn = GlowButton(
+            btn_area,
+            text="  Iniciar Automação  ",
+            command=self._on_run,
+            height=52,
+            font=ctk.CTkFont(family=FONT_BOLD, size=16, weight="bold"),
+            fg_color=P.accent,
+            hover_color=P.accent_hover,
+            border_color=P.accent,
+            corner_radius=12,
+            glow_color=P.accent_light,
+        )
+        self._run_btn.pack(side="left")
+        self._run_btn.start_glow(base=P.accent, peak=P.accent_light)
+
+        self._spinner = Spinner(btn_area, size=28, thickness=3, color=P.accent_light, bg=P.bg_section)
+
+        self._cancel_btn = ctk.CTkButton(
+            btn_area,
+            text="Cancelar",
+            command=self._on_cancel,
+            height=52, width=130,
+            font=ctk.CTkFont(family=FONT_BOLD, size=13, weight="bold"),
+            fg_color=P.danger, hover_color="#B91C1C",
+            corner_radius=12, state="disabled",
+        )
+        self._cancel_btn.pack(side="left", padx=(10, 0))
+
+        ctk.CTkLabel(
+            card,
+            text="Baixa notas emitidas e recebidas para todos os CNPJs, depois importa no Domínio Web.",
+            font=ctk.CTkFont(family=FONT, size=11),
+            text_color=P.text_secondary,
+        ).grid(row=2, column=0, pady=(2, 12))
+
+        # Barra de progresso
+        self._progress = ctk.CTkProgressBar(
+            card, height=6,
+            progress_color=P.accent_light, fg_color=P.bg_card, corner_radius=4,
+        )
+        self._progress.grid(row=3, column=0, sticky="ew", padx=60, pady=(0, 8))
+        self._progress.set(0)
+
+        # Seletor de período
+        sep = ctk.CTkFrame(card, fg_color=P.border, height=1)
+        sep.grid(row=4, column=0, sticky="ew", padx=24, pady=(4, 12))
+
+        periodo = ctk.CTkFrame(card, fg_color="transparent")
+        periodo.grid(row=5, column=0, pady=(0, 16))
+
+        self._use_prev_month = tk.BooleanVar(value=True)
+        sw = ctk.CTkSwitch(
+            periodo,
+            text="Usar mês anterior automaticamente",
+            variable=self._use_prev_month,
+            onvalue=True, offvalue=False,
+            command=self._toggle_dates,
+            progress_color=P.accent_light,
+            font=ctk.CTkFont(family=FONT, size=12),
+            text_color=P.text_secondary,
+        )
+        sw.pack(side="left", padx=(0, 20))
+
+        date_style = dict(
+            date_pattern="dd/mm/yyyy", locale="pt_BR", width=11,
+            background=P.accent, foreground="white", borderwidth=0,
+            font=(FONT, 11),
+        )
+        ctk.CTkLabel(
+            periodo, text="Início:", font=ctk.CTkFont(family=FONT, size=11),
+            text_color=P.text_secondary,
+        ).pack(side="left")
+        self._dt_start = DateEntry(periodo, **date_style)
+        self._dt_start.pack(side="left", padx=(4, 14))
+
+        ctk.CTkLabel(
+            periodo, text="Fim:", font=ctk.CTkFont(family=FONT, size=11),
+            text_color=P.text_secondary,
+        ).pack(side="left")
+        self._dt_end = DateEntry(periodo, **date_style)
+        self._dt_end.pack(side="left", padx=(4, 0))
+
+        self._toggle_dates()
+
+    # ── 4. DUAS COLUNAS (Settings | Logs) ────────────────────────────────────
+    def _build_bottom(self, parent: ctk.CTkScrollableFrame) -> None:
+        row = ctk.CTkFrame(parent, fg_color="transparent")
+        row.grid(row=3, column=0, sticky="nsew", padx=24, pady=(0, 8))
+        row.grid_columnconfigure(0, weight=1)
+        row.grid_columnconfigure(1, weight=2)
+        row.grid_rowconfigure(0, weight=1)
+
+        self._build_settings_col(row)
+        self._build_logs_col(row)
+
+    def _build_settings_col(self, parent: ctk.CTkFrame) -> None:
+        card = ctk.CTkFrame(
+            parent, fg_color=P.bg_section,
+            corner_radius=14, border_width=1, border_color=P.border,
+        )
+        card.grid(row=0, column=0, sticky="nsew", padx=(0, 8))
         card.grid_columnconfigure(0, weight=1)
 
         ctk.CTkLabel(
-            card,
-            text="NFSe",
-            font=ctk.CTkFont(family=UI_FONT_HEADING, size=34, weight="bold"),
-        ).pack(pady=(40, 4))
+            card, text="Configurações Rápidas",
+            font=ctk.CTkFont(family=FONT_BOLD, size=13, weight="bold"),
+            text_color=P.text_primary, anchor="w",
+        ).grid(row=0, column=0, sticky="w", padx=16, pady=(14, 8))
+
+        sep = ctk.CTkFrame(card, fg_color=P.border, height=1)
+        sep.grid(row=1, column=0, sticky="ew", padx=16, pady=(0, 10))
+
+        chk_kw = dict(
+            font=ctk.CTkFont(family=FONT, size=12),
+            text_color=P.text_secondary,
+            progress_color=P.accent_light,
+            fg_color="transparent",
+        )
+
+        # Notificações por e-mail
+        self._chk_email = tk.BooleanVar(value=bool(getattr(config, "ZOHO_EMAIL_TO", "")))
+        ctk.CTkCheckBox(
+            card, text="Notificações por e-mail",
+            variable=self._chk_email, **chk_kw,
+        ).grid(row=2, column=0, sticky="w", padx=16, pady=4)
+
+        # Importar no Domínio Web
+        self._chk_dominio = tk.BooleanVar(
+            value=bool(getattr(config, "DOMINIO_WEB_IMPORTAR", True))
+        )
+        ctk.CTkCheckBox(
+            card, text="Importar no Domínio Web",
+            variable=self._chk_dominio,
+            command=self._on_dominio_toggle,
+            **chk_kw,
+        ).grid(row=3, column=0, sticky="w", padx=16, pady=4)
+
+        # Modo debug (mostra browser)
+        self._chk_debug = tk.BooleanVar(
+            value=not bool(getattr(config, "PLAYWRIGHT_HEADLESS", False))
+        )
+        ctk.CTkCheckBox(
+            card, text="Mostrar navegador (modo debug)",
+            variable=self._chk_debug, **chk_kw,
+        ).grid(row=4, column=0, sticky="w", padx=16, pady=4)
+
+        sep2 = ctk.CTkFrame(card, fg_color=P.border, height=1)
+        sep2.grid(row=5, column=0, sticky="ew", padx=16, pady=(10, 6))
+
+        # Slider: intervalo entre empresas
+        ctk.CTkLabel(
+            card, text="Intervalo entre empresas",
+            font=ctk.CTkFont(family=FONT_BOLD, size=11, weight="bold"),
+            text_color=P.text_secondary, anchor="w",
+        ).grid(row=6, column=0, sticky="w", padx=16, pady=(0, 4))
+
+        self._slider_var = tk.IntVar(value=int(getattr(config, "PLAYWRIGHT_SLOW_MO_MS", 0) / 1000))
+        slider_row = ctk.CTkFrame(card, fg_color="transparent")
+        slider_row.grid(row=7, column=0, sticky="ew", padx=16, pady=(0, 6))
+        slider_row.grid_columnconfigure(0, weight=1)
+
+        ctk.CTkSlider(
+            slider_row,
+            from_=0, to=10,
+            variable=self._slider_var,
+            number_of_steps=10,
+            progress_color=P.accent_light,
+            button_color=P.accent_light,
+            button_hover_color=P.accent,
+        ).grid(row=0, column=0, sticky="ew")
+
+        self._slider_lbl = ctk.CTkLabel(
+            slider_row,
+            text=f"{self._slider_var.get()}s",
+            font=ctk.CTkFont(family=FONT_BOLD, size=11, weight="bold"),
+            text_color=P.accent_light, width=32,
+        )
+        self._slider_lbl.grid(row=0, column=1, padx=(8, 0))
+        self._slider_var.trace_add("write", lambda *_: self._slider_lbl.configure(
+            text=f"{self._slider_var.get()}s"
+        ))
+
+        sep3 = ctk.CTkFrame(card, fg_color=P.border, height=1)
+        sep3.grid(row=8, column=0, sticky="ew", padx=16, pady=(6, 8))
+
+        # Botões de ação extras
+        btn_kw = dict(
+            font=ctk.CTkFont(family=FONT, size=11),
+            fg_color="transparent", border_width=1, border_color=P.border,
+            text_color=P.text_secondary, hover_color=P.bg_card,
+            corner_radius=8, height=32,
+        )
+        ctk.CTkButton(
+            card, text="Contar certificados",
+            command=self._on_count_certs, **btn_kw,
+        ).grid(row=9, column=0, sticky="ew", padx=16, pady=3)
+        ctk.CTkButton(
+            card, text="Abrir pasta de saída",
+            command=self._open_output, **btn_kw,
+        ).grid(row=10, column=0, sticky="ew", padx=16, pady=3)
+        ctk.CTkButton(
+            card, text="Limpar logs (Ctrl+L)",
+            command=self._clear_logs, **btn_kw,
+        ).grid(row=11, column=0, sticky="ew", padx=16, pady=(3, 14))
+
+        # CNPJs
+        sep4 = ctk.CTkFrame(card, fg_color=P.border, height=1)
+        sep4.grid(row=12, column=0, sticky="ew", padx=16, pady=(0, 8))
+        ctk.CTkLabel(
+            card, text="CNPJs específicos (opcional)",
+            font=ctk.CTkFont(family=FONT_BOLD, size=11, weight="bold"),
+            text_color=P.text_secondary, anchor="w",
+        ).grid(row=13, column=0, sticky="w", padx=16, pady=(0, 4))
+        ctk.CTkLabel(
+            card, text="Deixe vazio para todos. Separe por vírgula ou linha.",
+            font=ctk.CTkFont(family=FONT, size=10),
+            text_color=P.text_secondary, anchor="w", wraplength=260, justify="left",
+        ).grid(row=14, column=0, sticky="w", padx=16)
+        self._cnpjs_box = ctk.CTkTextbox(
+            card, height=72,
+            font=ctk.CTkFont(family=FONT_MONO, size=11),
+            fg_color=P.log_bg, border_color=P.border, border_width=1, corner_radius=8,
+        )
+        self._cnpjs_box.grid(row=15, column=0, sticky="ew", padx=16, pady=(4, 16))
+
+    def _build_logs_col(self, parent: ctk.CTkFrame) -> None:
+        card = ctk.CTkFrame(
+            parent, fg_color=P.bg_section,
+            corner_radius=14, border_width=1, border_color=P.border,
+        )
+        card.grid(row=0, column=1, sticky="nsew", padx=(8, 0))
+        card.grid_columnconfigure(0, weight=1)
+        card.grid_rowconfigure(2, weight=1)
+
+        # Header dos logs
+        hdr = ctk.CTkFrame(card, fg_color="transparent")
+        hdr.grid(row=0, column=0, sticky="ew", padx=14, pady=(12, 6))
+        hdr.grid_columnconfigure(2, weight=1)
 
         ctk.CTkLabel(
+            hdr, text="Logs em Tempo Real",
+            font=ctk.CTkFont(family=FONT_BOLD, size=13, weight="bold"),
+            text_color=P.text_primary,
+        ).grid(row=0, column=0, sticky="w")
+
+        self._log_filter_btn = ctk.CTkSegmentedButton(
+            hdr,
+            values=["ALL", "INFO", "ERRO"],
+            command=self._set_log_filter,
+            fg_color=P.bg_card,
+            selected_color=P.accent,
+            selected_hover_color=P.accent_hover,
+            font=ctk.CTkFont(family=FONT, size=11),
+        )
+        self._log_filter_btn.set("ALL")
+        self._log_filter_btn.grid(row=0, column=1, padx=(12, 0))
+
+        ctk.CTkButton(
+            hdr, text="Copiar",
+            command=self._copy_logs,
+            width=68, height=28,
+            font=ctk.CTkFont(family=FONT, size=11),
+            fg_color="transparent", border_width=1, border_color=P.border,
+            text_color=P.text_secondary, hover_color=P.bg_card, corner_radius=6,
+        ).grid(row=0, column=3, sticky="e")
+
+        sep = ctk.CTkFrame(card, fg_color=P.border, height=1)
+        sep.grid(row=1, column=0, sticky="ew", padx=14)
+
+        # Área de texto dos logs
+        self._logs_txt = ctk.CTkTextbox(
             card,
-            text=APP_TITLE,
-            font=ctk.CTkFont(family=UI_FONT_HEADING, size=24, weight="bold"),
-            text_color=PALETTE.text_primary,
+            fg_color=P.log_bg, border_width=0,
+            font=ctk.CTkFont(family=FONT_MONO, size=11),
+        )
+        self._logs_txt.grid(row=2, column=0, sticky="nsew", padx=14, pady=(6, 12))
+        self._logs_txt.configure(state="disabled")
+
+        inner = self._logs_txt._textbox
+        for lv, clr in LOG_COLORS.items():
+            inner.tag_configure(lv, foreground=clr)
+        inner.tag_configure("TS", foreground=P.text_secondary)
+
+    # ── 5. RODAPÉ COM DICA ────────────────────────────────────────────────────
+    def _build_footer(self, parent: ctk.CTkScrollableFrame) -> None:
+        footer = ctk.CTkFrame(
+            parent,
+            fg_color=P.badge_bg,
+            corner_radius=10,
+            border_width=1, border_color=P.accent,
+        )
+        footer.grid(row=4, column=0, sticky="ew", padx=24, pady=(0, 20))
+        footer.grid_columnconfigure(1, weight=1)
+
+        ctk.CTkLabel(
+            footer, text="💡",
+            font=ctk.CTkFont(size=16), text_color=P.accent_light,
+        ).grid(row=0, column=0, padx=(14, 6), pady=12)
+
+        self._tip_lbl = ctk.CTkLabel(
+            footer,
+            text=TIPS[0],
+            font=ctk.CTkFont(family=FONT, size=12),
+            text_color=P.text_secondary,
+            anchor="w",
+        )
+        self._tip_lbl.grid(row=0, column=1, sticky="w", pady=12)
+
+    # ══════════════════════════════════════════════════════════════════════════
+    # PÁGINA CONFIGURAÇÕES
+    # ══════════════════════════════════════════════════════════════════════════
+    def _make_config_page(self) -> ctk.CTkFrame:
+        root = ctk.CTkFrame(self, fg_color=P.bg_app)
+        root.grid_rowconfigure(1, weight=1)
+        root.grid_columnconfigure(0, weight=1)
+
+        # Mini-header
+        hdr = ctk.CTkFrame(root, fg_color=P.header, height=56, corner_radius=0)
+        hdr.grid(row=0, column=0, sticky="ew")
+        hdr.grid_propagate(False)
+        hdr.grid_columnconfigure(1, weight=1)
+
+        ctk.CTkLabel(
+            hdr, text="← Configurações",
+            font=ctk.CTkFont(family=FONT_BOLD, size=16, weight="bold"),
+            text_color=P.text_primary,
+        ).grid(row=0, column=0, padx=20, pady=12, sticky="w")
+
+        ctk.CTkButton(
+            hdr, text="Voltar",
+            command=lambda: self._nav("main"),
+            height=34, width=90,
+            font=ctk.CTkFont(family=FONT, size=12),
+            fg_color="transparent", border_width=1, border_color=P.border,
+            text_color=P.text_secondary, hover_color=P.bg_card, corner_radius=8,
+        ).grid(row=0, column=2, padx=16, pady=12)
+
+        # Conteúdo scrollável
+        scroll = ctk.CTkScrollableFrame(root, fg_color=P.bg_app)
+        scroll.grid(row=1, column=0, sticky="nsew", padx=24, pady=16)
+        scroll.grid_columnconfigure(0, weight=1)
+
+        self._cfg_vars: dict[str, tk.StringVar] = {}
+
+        sections = [
+            ("Caminhos Locais", [
+                ("PASTA_CERTS",        "Pasta de Certificados", "dir"),
+                ("PASTA_SAIDA",        "Pasta de Saída",        "dir"),
+                ("CHROME_USER_DATA_DIR","Perfil Chrome",        "dir"),
+                ("CHROME_EXTENSION_DIR","Pasta da Extensão",   "dir"),
+                ("XLSX_PATH",          "Planilha de Clientes",  "path"),
+            ]),
+            ("Portal NFSe / Playwright", [
+                ("NFSE_LOGIN_URL",                  "URL de Login",          "text"),
+                ("NFSE_EMITIDAS_URL",               "URL Notas Emitidas",    "text"),
+                ("NFSE_RECEBIDAS_URL",              "URL Notas Recebidas",   "text"),
+                ("NFSE_ATALHO_EXTENSAO",            "Atalho da Extensão",    "text"),
+                ("AUTOSELECT_CERTIFICATE_PATTERNS", "AutoSelect Cert Patterns","text"),
+                ("PLAYWRIGHT_LOGIN_TIMEOUT_S",      "Timeout Login (s)",     "int"),
+                ("PLAYWRIGHT_DOWNLOAD_TIMEOUT_S",   "Timeout Download (s)",  "int"),
+                ("PLAYWRIGHT_HEADLESS",             "Headless (True/False)", "text"),
+            ]),
+            ("Domínio Web", [
+                ("DOMINIO_WEB_URL",    "URL Domínio Web",    "text"),
+                ("DOMINIO_WEB_MODULO", "Módulo",             "text"),
+                ("DOMINIO_WEB_IMPORTAR","Importar (True/False)","text"),
+            ]),
+            ("E-mail (Zoho SMTP)", [
+                ("ZOHO_SMTP_HOST",     "Host SMTP",      "text"),
+                ("ZOHO_SMTP_PORT",     "Porta",          "int"),
+                ("ZOHO_SMTP_USER",     "Usuário",        "text"),
+                ("ZOHO_SMTP_PASSWORD", "Senha",          "secret"),
+                ("ZOHO_EMAIL_FROM",    "Remetente",      "text"),
+                ("ZOHO_EMAIL_TO",      "Destinatário(s)","text"),
+            ]),
+        ]
+
+        r = 0
+        for titulo, campos in sections:
+            sec = ctk.CTkFrame(
+                scroll, fg_color=P.bg_section,
+                corner_radius=12, border_width=1, border_color=P.border,
+            )
+            sec.grid(row=r, column=0, sticky="ew", pady=(0, 12))
+            sec.grid_columnconfigure(1, weight=1)
+
+            ctk.CTkLabel(
+                sec, text=titulo,
+                font=ctk.CTkFont(family=FONT_BOLD, size=13, weight="bold"),
+                text_color=P.text_primary, anchor="w",
+            ).grid(row=0, column=0, columnspan=3, sticky="w", padx=16, pady=(12, 6))
+
+            for i, (key, label, kind) in enumerate(campos, start=1):
+                ctk.CTkLabel(
+                    sec, text=label,
+                    font=ctk.CTkFont(family=FONT, size=11),
+                    text_color=P.text_secondary, anchor="w", width=200,
+                ).grid(row=i, column=0, sticky="w", padx=(16, 8), pady=3)
+
+                var = tk.StringVar(value=str(getattr(config, key, "")))
+                self._cfg_vars[key] = var
+
+                entry = ctk.CTkEntry(
+                    sec, textvariable=var,
+                    fg_color=P.bg_card, border_color=P.border, height=30,
+                    font=ctk.CTkFont(family=FONT, size=11),
+                    show="•" if kind == "secret" else None,
+                )
+                entry.grid(row=i, column=1, sticky="ew", padx=8, pady=3)
+
+                if kind in ("dir", "path"):
+                    ctk.CTkButton(
+                        sec, text="…", width=30, height=30,
+                        fg_color="transparent", border_width=1, border_color=P.border,
+                        text_color=P.text_secondary, hover_color=P.bg_card,
+                        command=lambda k=key, t=kind: self._browse(k, t),
+                    ).grid(row=i, column=2, padx=(0, 16), pady=3)
+                elif kind == "secret":
+                    ctk.CTkButton(
+                        sec, text="ver", width=30, height=30,
+                        fg_color="transparent", border_width=1, border_color=P.border,
+                        text_color=P.text_secondary, hover_color=P.bg_card,
+                        command=lambda e=entry: e.configure(show="" if e.cget("show") else "•"),
+                    ).grid(row=i, column=2, padx=(0, 16), pady=3)
+
+            ctk.CTkFrame(sec, fg_color="transparent", height=6).grid(
+                row=len(campos) + 1, column=0, columnspan=3
+            )
+            r += 1
+
+        # Botões de salvar
+        save_row = ctk.CTkFrame(scroll, fg_color="transparent")
+        save_row.grid(row=r, column=0, sticky="ew", pady=(4, 20))
+        for text, cmd, clr, hov in [
+            ("Salvar alterações",    self._save_config,   P.success,  "#16A34A"),
+            ("Recarregar do disco",  self._reload_config, "transparent", P.bg_card),
+            ("Abrir no editor",      self._open_config,   "transparent", P.bg_card),
+        ]:
+            ctk.CTkButton(
+                save_row, text=text, command=cmd,
+                height=38, fg_color=clr, hover_color=hov,
+                border_width=0 if clr not in ("transparent",) else 1,
+                border_color=P.border,
+                text_color=P.text_primary,
+                font=ctk.CTkFont(family=FONT_BOLD, size=12, weight="bold"),
+                corner_radius=8,
+            ).pack(side="left", padx=(0, 8))
+
+        return root
+
+    # ══════════════════════════════════════════════════════════════════════════
+    # PÁGINA SOBRE
+    # ══════════════════════════════════════════════════════════════════════════
+    def _make_sobre_page(self) -> ctk.CTkFrame:
+        root = ctk.CTkFrame(self, fg_color=P.bg_app)
+        root.grid_rowconfigure(1, weight=1)
+        root.grid_columnconfigure(0, weight=1)
+
+        hdr = ctk.CTkFrame(root, fg_color=P.header, height=56, corner_radius=0)
+        hdr.grid(row=0, column=0, sticky="ew")
+        hdr.grid_propagate(False)
+        ctk.CTkLabel(
+            hdr, text="Sobre",
+            font=ctk.CTkFont(family=FONT_BOLD, size=16, weight="bold"),
+            text_color=P.text_primary,
+        ).grid(row=0, column=0, padx=20, pady=12)
+        ctk.CTkButton(
+            hdr, text="Voltar",
+            command=lambda: self._nav("main"),
+            height=34, width=90,
+            fg_color="transparent", border_width=1, border_color=P.border,
+            text_color=P.text_secondary, hover_color=P.bg_card, corner_radius=8,
+            font=ctk.CTkFont(family=FONT, size=12),
+        ).grid(row=0, column=1, padx=16, pady=12)
+
+        card = ctk.CTkFrame(
+            root, fg_color=P.bg_section,
+            corner_radius=18, border_width=1, border_color=P.border,
+        )
+        card.grid(row=1, column=0, padx=140, pady=50, sticky="nsew")
+        card.grid_columnconfigure(0, weight=1)
+
+        ctk.CTkLabel(
+            card, text=APP_TITLE,
+            font=ctk.CTkFont(family=FONT_BOLD, size=32, weight="bold"),
+            text_color=P.accent_light,
+        ).pack(pady=(40, 4))
+        ctk.CTkLabel(
+            card, text=f"v{APP_VER}",
+            font=ctk.CTkFont(family=FONT, size=13),
+            text_color=P.text_secondary,
         ).pack()
 
         ctk.CTkLabel(
             card,
-            text=f"Versão {APP_VERSION}",
-            font=ctk.CTkFont(family=UI_FONT, size=13),
-            text_color=PALETTE.text_secondary,
-        ).pack(pady=(0, 20))
+            text=(
+                "Automação de download de NFS-e (emitidas + recebidas)\n"
+                "e importação no Domínio Web, empresa por empresa.\n\n"
+                "© CONX Contabilidade"
+            ),
+            font=ctk.CTkFont(family=FONT, size=12),
+            text_color=P.text_secondary, justify="center",
+        ).pack(pady=(16, 20))
 
-        info = (
-            "Automatiza o download de NFSe para multiplos clientes\n"
-            "via Playwright local, sem dependencia de API externa.\n\n"
-            "(c) CONX Contabilidade"
-        )
-        ctk.CTkLabel(
-            card,
-            text=info,
-            font=ctk.CTkFont(family=UI_FONT, size=12),
-            text_color=PALETTE.text_secondary,
-            justify="center",
-        ).pack(pady=(0, 20))
-
-        diag = ctk.CTkFrame(card, fg_color=PALETTE.bg_card, corner_radius=10)
-        diag.pack(padx=40, pady=(0, 30), fill="x")
-
-        diag_texto = (
-            f"Python          {sys.version.split()[0]}\n"
-            f"Portal NFSe     {getattr(config, 'NFSE_LOGIN_URL', '-')}\n"
-            f"Extensao        {getattr(config, 'CHROME_EXTENSION_DIR', '-')}\n"
-            f"Pasta de saida  {getattr(config, 'PASTA_SAIDA', '-')}\n"
-            f"Data atual      {datetime.now().strftime('%d/%m/%Y %H:%M')}"
-        )
+        diag = ctk.CTkFrame(card, fg_color=P.bg_card, corner_radius=10)
+        diag.pack(padx=40, pady=(0, 40), fill="x")
         ctk.CTkLabel(
             diag,
-            text=diag_texto,
-            font=ctk.CTkFont(family=UI_FONT_MONO, size=11),
-            text_color=PALETTE.text_secondary,
-            justify="left",
-            anchor="w",
+            text=(
+                f"Python          {sys.version.split()[0]}\n"
+                f"Portal NFSe     {getattr(config, 'NFSE_LOGIN_URL', '-')}\n"
+                f"Pasta de saída  {getattr(config, 'PASTA_SAIDA', '-')}\n"
+                f"Data/hora       {datetime.now().strftime('%d/%m/%Y %H:%M')}"
+            ),
+            font=ctk.CTkFont(family=FONT_MONO, size=11),
+            text_color=P.text_secondary, justify="left", anchor="w",
         ).pack(padx=18, pady=14, anchor="w")
 
-        return page
+        return root
 
-    # ----------------------------------------------------------------- helpers UI
-    def _periodo_padrao_str(self) -> str:
-        hoje = date.today()
-        if hoje.month == 1:
-            mes, ano = 12, hoje.year - 1
-        else:
-            mes, ano = hoje.month - 1, hoje.year
-        return f"{mes:02d}/{ano}"
+    # ── Navegação ─────────────────────────────────────────────────────────────
+    def _nav(self, page: str) -> None:
+        m = {"main": self._page_main, "config": self._page_config, "sobre": self._page_sobre}
+        if page in m:
+            m[page].tkraise()
+            self._current_page = page
 
-    def _show_page(self, name: str) -> None:
-        if name not in self.pages:
-            return
-        self.pages[name].tkraise()
-        self.current_page = name
-        for key, btn in self.nav_buttons.items():
-            btn.set_active(key == name)
-        titles = {"executar": "Executar", "config": "Configurações", "sobre": "Sobre"}
-        self.page_title_var.set(titles.get(name, name))
-        try:
-            self.transition_bar.play()
-        except Exception:  # noqa: BLE001
-            pass
-
-    def _on_theme_change(self, value: str) -> None:
-        ctk.set_appearance_mode("dark" if value == "Escuro" else "light")  # type: ignore[no-untyped-call]
-
-    def _toggle_data_entries(self) -> None:
-        if self.usar_mes_anterior.get():
-            self.data_inicio_entry.configure(state="disabled")
-            self.data_fim_entry.configure(state="disabled")
-            self.card_periodo.set_value(self._periodo_padrao_str())
-        else:
-            self.data_inicio_entry.configure(state="normal")
-            self.data_fim_entry.configure(state="normal")
-            self._atualizar_card_periodo()
-
-    def _atualizar_card_periodo(self) -> None:
-        try:
-            ini = self.data_inicio_entry.get_date().strftime("%d/%m/%Y")
-            fim = self.data_fim_entry.get_date().strftime("%d/%m/%Y")
-            self.card_periodo.set_value(f"{ini} → {fim}")
-        except Exception:  # noqa: BLE001
-            self.card_periodo.set_value("-")
-
-    def _update_cnpj_card(self) -> None:
-        raw = self.cnpjs_text.get("1.0", "end").strip()
-        if not raw:
-            self.card_cnpjs.set_value("Todos")
-            return
-        partes = [p for p in re.split(r"[\s,;]+", raw) if p]
-        self.card_cnpjs.set_value(f"{len(partes)} CNPJ(s)")
-
-    def _toggle_secret(self, entry: ctk.CTkEntry) -> None:
-        current = entry.cget("show")
-        entry.configure(show="" if current else "•")
-
-    def _browse_path(self, chave: str, tipo: str) -> None:
-        from tkinter import filedialog
-
-        var = self.config_fields[chave]
-        atual = var.get()
-        if tipo == "dir":
-            value = filedialog.askdirectory(
-                parent=self,
-                initialdir=atual if atual and Path(atual).exists() else None,
-                title="Selecione a pasta",
-            )
-        else:
-            value = filedialog.askopenfilename(
-                parent=self,
-                initialdir=str(Path(atual).parent) if atual else None,
-                title="Selecione o arquivo",
-                filetypes=[("Planilhas", "*.xlsx *.xls"), ("Todos", "*.*")],
-            )
-        if value:
-            var.set(value)
-
-    # ----------------------------------------------------------------- logs
-    def _configure_logging(self) -> None:
-        self.log_handler = QueueLogHandler(self.log_queue)
-        self.log_handler.setLevel(logging.INFO)
-        self.log_handler.setFormatter(
-            logging.Formatter(
-                fmt="%(asctime)s  %(levelname)-8s  %(name)s  %(message)s",
-                datefmt="%H:%M:%S",
-            )
-        )
-
-        root_logger = logging.getLogger()
-        root_logger.addHandler(self.log_handler)
-        root_logger.setLevel(logging.INFO)
-        logging.getLogger("nfse.gui").info("Painel de logs inicializado.")
-        self.after(150, lambda: self._append_log_direct("Interface pronta para uso.", "INFO"))
-
-    # Limite de linhas no painel para nao degradar a UI em execucoes longas.
-    _MAX_LOG_LINES = 5000
-    # Quantas linhas podar de uma vez quando ultrapassar o limite (evita poda a cada tick).
-    _LOG_TRIM_CHUNK = 500
-
-    def _drain_log_queue(self) -> None:
-        """Consome toda a fila num unico tick e renderiza em lote."""
-        chunks: list[tuple[str, str]] = []
-        try:
-            while True:
-                record = self.log_queue.get_nowait()
-                if not self._log_passes_filter(record):
-                    continue
-                msg = self.log_handler.format(record)
-                if self._log_search and self._log_search.lower() not in msg.lower():
-                    continue
-                chunks.append((msg, record.levelname))
-        except queue.Empty:
-            pass
-        except Exception as exc:  # noqa: BLE001
-            chunks.append((f"Falha ao processar log: {exc}", "ERROR"))
-
-        if chunks:
-            self._flush_log_chunks(chunks)
-        self.after(120, self._drain_log_queue)
-
-    def _log_passes_filter(self, record: logging.LogRecord) -> bool:
-        if self._log_filter_level == "ALL":
-            return True
-        if self._log_filter_level == "INFO":
-            return record.levelno >= logging.INFO
-        return record.levelname == self._log_filter_level
-
-    def _flush_log_chunks(self, chunks: list[tuple[str, str]]) -> None:
-        """
-        Aplica um lote de mensagens no textbox com um unico toggle de estado
-        e uma unica chamada a see("end"). Poda linhas antigas se passar do limite.
-        """
-        inner = self.logs_text._textbox  # type: ignore[attr-defined]
-        self.logs_text.configure(state="normal")
-        for msg, levelname in chunks:
-            ts_end = msg.find("  ")
-            if ts_end > 0:
-                inner.insert("end", msg[: ts_end + 2], "TIMESTAMP")
-                inner.insert("end", msg[ts_end + 2 :] + "\n", levelname)
-            else:
-                inner.insert("end", msg + "\n", levelname)
-
-        # Poda em bloco: a ultima linha vazia do Text nao conta.
-        total_lines = int(inner.index("end-1c").split(".")[0])
-        if total_lines > self._MAX_LOG_LINES + self._LOG_TRIM_CHUNK:
-            excesso = total_lines - self._MAX_LOG_LINES
-            inner.delete("1.0", f"{excesso + 1}.0")
-
-        self.logs_text.configure(state="disabled")
-        inner.see("end")
-
-    def _append_log_direct(self, message: str, levelname: str = "INFO") -> None:
-        """Insere uma linha direto no painel (fallback, sem passar pela fila)."""
-        now = datetime.now().strftime("%H:%M:%S")
-        linha = f"{now}  {levelname:<8}  nfse.gui  {message}"
-        self._flush_log_chunks([(linha, levelname)])
-
-    def _limpar_logs(self) -> None:
-        self.logs_text.configure(state="normal")
-        self.logs_text._textbox.delete("1.0", "end")  # type: ignore[attr-defined]
-        self.logs_text.configure(state="disabled")
-
-    def _copiar_logs(self) -> None:
-        conteudo = self.logs_text._textbox.get("1.0", "end").strip()  # type: ignore[attr-defined]
-        if not conteudo:
-            return
-        self.clipboard_clear()
-        self.clipboard_append(conteudo)
-        self.statusbar_var.set("Logs copiados para a área de transferência.")
-
-    def _set_log_filter(self, level: str) -> None:
-        self._log_filter_level = level
-
-    def _on_log_search(self) -> None:
-        self._log_search = self.log_search_entry.get().strip()
-
-    def _on_cancelar(self) -> None:
-        if not self.running:
-            return
-        if self.cancel_event:
-            self.cancel_event.set()
-        logging.getLogger("nfse.gui").warning("Cancelamento solicitado pelo usuario.")
-        self.card_status.set_value("Cancelando...")
-        self.card_status.value_label.configure(text_color=PALETTE.warning)
-        self.card_status.set_accent_color(PALETTE.warning)
-        self.topbar_status.configure(text="Cancelando", text_color=PALETTE.warning)
-        self.status_badge.set_color(PALETTE.warning)
-        self.statusbar_var.set("Cancelando execucao em andamento...")
-        self.cancelar_btn.configure(state="disabled")
-
-    def _on_contar_certificados(self) -> None:
-        if self.running:
-            return
-        self._show_page("executar")
-        self.statusbar_var.set("Contando certificados...")
-        threading.Thread(
-            target=self._contar_certificados_worker,
-            daemon=True,
-        ).start()
-
-    def _contar_certificados_worker(self) -> None:
-        logger = logging.getLogger("nfse.gui")
-        try:
-            pasta_raw = str(getattr(config, "PASTA_CERTS", "")).strip()
-            if not pasta_raw:
-                raise ValueError("PASTA_CERTS nao configurada.")
-
-            pasta = Path(pasta_raw)
-            if not pasta.exists():
-                raise FileNotFoundError(f"Pasta nao encontrada: {pasta}")
-            if not pasta.is_dir():
-                raise NotADirectoryError(f"Caminho nao e uma pasta: {pasta}")
-
-            certs = listar_certificados(pasta)
-            mapa_unico, duplicados = indexar_certificados_por_cnpj(certs)
-            validos = [cert for cert in certs if not cert.erro]
-            ok = len(validos)
-            erro = len(certs) - ok
-            ecnpj = sum(1 for cert in validos if len(cert.documento) == 14)
-            ecpf = sum(1 for cert in validos if len(cert.documento) == 11)
-            sem_doc = sum(1 for cert in validos if len(cert.documento) not in (11, 14))
-            duplicados_arquivos = sum(len(itens) for itens in duplicados.values())
-
-            logger.info("Pasta de certificados: %s", pasta)
-            logger.info(
-                "Tipos certificados: a1_arquivos=%d | e_cnpj=%d | e_cpf=%d | sem_doc=%d",
-                len(certs),
-                ecnpj,
-                ecpf,
-                sem_doc,
-            )
-            logger.info(
-                "Resumo certificados: total=%d | ok=%d | erro=%d | cnpjs_unicos=%d | cnpjs_duplicados=%d | arquivos_duplicados=%d",
-                len(certs),
-                ok,
-                erro,
-                len(mapa_unico),
-                len(duplicados),
-                duplicados_arquivos,
-            )
-
-            if erro:
-                for cert in [c for c in certs if c.erro][:10]:
-                    logger.warning("Certificado com erro: %s | %s", cert.arquivo.name, cert.erro)
-
-            self.after(
-                0,
-                lambda: self.statusbar_var.set(
-                    f"A1: {len(certs)} | e-CNPJ: {ecnpj} | e-CPF: {ecpf} | erros: {erro}"
-                ),
-            )
-        except Exception as exc:  # noqa: BLE001
-            logger.exception("Falha ao contar certificados: %s", exc)
-            self.after(0, lambda: self.statusbar_var.set("Falha ao contar certificados."))
-
-    # ----------------------------------------------------------------- execucao
-    def _parse_cnpjs(self) -> list[str] | None:
-        raw = self.cnpjs_text.get("1.0", "end").strip()
-        if not raw:
-            return None
-        partes = [p for p in re.split(r"[\s,;]+", raw) if p]
-        cnpjs: list[str] = []
-        invalidos: list[str] = []
-        for parte in partes:
-            somente = re.sub(r"\D", "", parte)
-            if len(somente) == 14:
-                cnpjs.append(somente)
-            else:
-                invalidos.append(parte)
-        if invalidos:
-            raise ValueError(
-                f"CNPJ inválido: {', '.join(invalidos[:3])}. "
-                "Use somente CNPJs com 14 dígitos."
-            )
-        return cnpjs or None
-
-    def _on_executar(self) -> None:
+    # ══════════════════════════════════════════════════════════════════════════
+    # LÓGICA DE EXECUÇÃO
+    # ══════════════════════════════════════════════════════════════════════════
+    def _on_run(self) -> None:
         if self.running:
             return
         try:
-            if self.usar_mes_anterior.get():
-                data_inicio = None
-                data_fim = None
+            if self._use_prev_month.get():
+                dt_ini = dt_fim = None
             else:
-                data_inicio = self.data_inicio_entry.get_date().strftime("%d/%m/%Y")
-                data_fim = self.data_fim_entry.get_date().strftime("%d/%m/%Y")
-                inicio_dt = datetime.strptime(data_inicio, "%d/%m/%Y")
-                fim_dt = datetime.strptime(data_fim, "%d/%m/%Y")
-                if inicio_dt > fim_dt:
-                    raise ValueError("Data início não pode ser maior que data fim.")
-                self._atualizar_card_periodo()
+                dt_ini = self._dt_start.get_date().strftime("%d/%m/%Y")
+                dt_fim = self._dt_end.get_date().strftime("%d/%m/%Y")
+                if datetime.strptime(dt_ini, "%d/%m/%Y") > datetime.strptime(dt_fim, "%d/%m/%Y"):
+                    raise ValueError("Data início maior que data fim.")
             cnpjs = self._parse_cnpjs()
         except ValueError as exc:
             messagebox.showerror("Validação", str(exc), parent=self)
             return
 
-        self.cancel_event = threading.Event()
+        # Aplica opções rápidas ao config em memória
+        config.PLAYWRIGHT_HEADLESS = not self._chk_debug.get()  # type: ignore[attr-defined]
+        config.DOMINIO_WEB_IMPORTAR = self._chk_dominio.get()   # type: ignore[attr-defined]
+
+        self.cancel_ev = threading.Event()
         self._set_running(True)
-        self._show_page("executar")
-        self.card_status.set_value("Executando")
-        self.card_status.value_label.configure(text_color=PALETTE.accent)
-        self.card_status.set_accent_color(PALETTE.accent)
-        self.card_ultima.set_value(datetime.now().strftime("%d/%m %H:%M"))
-        self.statusbar_var.set("Execução em andamento...")
-        self.topbar_status.configure(text="Executando", text_color=PALETTE.accent)
-        self.status_badge.set_color(PALETTE.accent)
-        self.progress.configure(mode="indeterminate")
-        self.progress.start()
-        self.exec_spinner.pack(side="left", padx=(10, 0))
-        self.exec_spinner.start()
-        self.executar_btn.stop_glow()
-        self.toasts.show(
-            "Execução iniciada",
-            "Processando portal NFSe em segundo plano.",
-            kind="info",
-            duration_ms=2800,
-        )
-        logging.getLogger("nfse.gui").info("Execução iniciada pela interface gráfica.")
+        self._set_status("Executando NFSe...", P.accent_light)
+        self.toasts.show("Automação iniciada", "Processando em segundo plano.", kind="info")
+        logging.getLogger("nfse.gui").info("Automação iniciada pela interface.")
 
         threading.Thread(
-            target=self._run_automacao,
-            args=(data_inicio, data_fim, cnpjs),
-            daemon=True,
+            target=self._worker, args=(dt_ini, dt_fim, cnpjs), daemon=True
         ).start()
 
-    def _run_automacao(
-        self,
-        data_inicio: str | None,
-        data_fim: str | None,
-        cnpjs: list[str] | None,
-    ) -> None:
-        resultado = "ok"
+    def _worker(self, dt_ini, dt_fim, cnpjs) -> None:
+        status = "ok"
+        total = ok = 0
         try:
-            self._contar_certificados_worker()
-            if self.cancel_event and self.cancel_event.is_set():
-                raise ExecucaoCancelada("Cancelada antes do inicio da automacao.")
-            executar(
-                data_inicio=data_inicio,
-                data_fim=data_fim,
-                cnpjs=cnpjs,
-                cancel_event=self.cancel_event,
-            )
+            from nfse_automacao import preparar_parametros, executar_local
+            params = preparar_parametros(dt_ini, dt_fim, cnpjs)
+            resultados = executar_local(params, cancel_event=self.cancel_ev)
+            total = len(resultados)
+            ok    = sum(1 for r in resultados if r.status == "ok")
+
+            if self._chk_email.get():
+                from nfse_automacao import montar_mensagem, notificar_email
+                msg = montar_mensagem(resultados, params)
+                notificar_email(msg["assunto"], msg["mensagem"])
+
         except ExecucaoCancelada:
-            resultado = "cancelado"
-            logging.getLogger("nfse.gui").warning("Execucao cancelada pelo usuario.")
-        except Exception:  # noqa: BLE001
-            resultado = "erro"
-            logging.getLogger("nfse.gui").exception("Erro inesperado na execucao.")
+            status = "cancelado"
+        except Exception:
+            status = "erro"
+            logging.getLogger("nfse.gui").exception("Erro na automação.")
         finally:
-            self.after(0, lambda r=resultado: self._on_execucao_finalizada(r))
+            self.after(0, lambda: self._on_done(status, total, ok))
 
-    def _on_execucao_finalizada(self, resultado: str) -> None:
+    def _on_done(self, status: str, total: int, ok: int) -> None:
         self._set_running(False)
-        self.progress.stop()
-        self.progress.configure(mode="determinate")
-        self.cancel_event = None
-        self.exec_spinner.stop()
-        self.exec_spinner.pack_forget()
-        self.executar_btn.start_glow(base=PALETTE.accent, peak=PALETTE.success)
 
-        if resultado == "ok":
-            self.progress.set(1)
-            self.card_status.set_value("Concluido")
-            self.card_status.value_label.configure(text_color=PALETTE.success)
-            self.card_status.set_accent_color(PALETTE.success)
-            self.topbar_status.configure(text="Pronto", text_color=PALETTE.success)
-            self.status_badge.set_color(PALETTE.success)
-            self.statusbar_var.set("Execucao finalizada.")
-            self.toasts.show(
-                "Execução concluída",
-                "Todos os certificados foram processados.",
-                kind="success",
-                duration_ms=4200,
-            )
-        elif resultado == "cancelado":
-            self.progress.set(0)
-            self.card_status.set_value("Cancelado")
-            self.card_status.value_label.configure(text_color=PALETTE.warning)
-            self.card_status.set_accent_color(PALETTE.warning)
-            self.topbar_status.configure(text="Cancelado", text_color=PALETTE.warning)
-            self.status_badge.set_color(PALETTE.warning)
-            self.statusbar_var.set("Execucao cancelada.")
-            self.toasts.show(
-                "Execução cancelada",
-                "Cancelada pelo usuário antes do término.",
-                kind="warning",
-                duration_ms=3600,
-            )
+        if status == "ok" and total > 0:
+            # Atualiza stats
+            s = _load_stats()
+            s["total_empresas"]      = s.get("total_empresas", 0) + ok
+            s["horas_economizadas"]  = round(s.get("horas_economizadas", 0.0) + ok * 0.25, 1)
+            s["taxa_sucesso"]        = round((ok / total) * 100) if total else 0
+            _save_stats(s)
+            self._card_empresas.set_value(str(s["total_empresas"]))
+            self._card_horas.set_value(f"{s['horas_economizadas']:.1f}h")
+            self._card_sucesso.set_value(f"{s['taxa_sucesso']}%")
+
+            self._set_status("Concluído", P.success)
+            self._progress.set(1)
+            self.toasts.show("Automação concluída", f"{ok}/{total} empresas processadas.", kind="success")
+        elif status == "cancelado":
+            self._set_status("Cancelado", P.warning)
+            self._progress.set(0)
+            self.toasts.show("Cancelado", "Interrompido pelo usuário.", kind="warning")
         else:
-            self.progress.set(0)
-            self.card_status.set_value("Erro")
-            self.card_status.value_label.configure(text_color=PALETTE.danger)
-            self.card_status.set_accent_color(PALETTE.danger)
-            self.topbar_status.configure(text="Erro", text_color=PALETTE.danger)
-            self.status_badge.set_color(PALETTE.danger)
-            self.statusbar_var.set("Execucao finalizada com erro.")
-            self.toasts.show(
-                "Falha na execução",
-                "Confira o painel de logs para detalhes.",
-                kind="error",
-                duration_ms=5000,
-            )
+            self._set_status("Erro", P.danger)
+            self._progress.set(0)
+            self.toasts.show("Falha", "Verifique os logs para detalhes.", kind="error")
+
+    def _on_cancel(self) -> None:
+        if self.cancel_ev:
+            self.cancel_ev.set()
+        self._set_status("Cancelando...", P.warning)
+        self._cancel_btn.configure(state="disabled")
 
     def _set_running(self, running: bool) -> None:
         self.running = running
-        self.executar_btn.configure(
+        self._run_btn.configure(
             state="disabled" if running else "normal",
-            text="Executando..." if running else "Executar agora",
+            text="  Executando...  " if running else "  Iniciar Automação  ",
         )
-        self.cancelar_btn.configure(state="normal" if running else "disabled")
-        self.contar_certs_btn.configure(state="disabled" if running else "normal")
-        self.sw_mes_anterior.configure(state="disabled" if running else "normal")
+        self._cancel_btn.configure(state="normal" if running else "disabled")
         if running:
-            self.data_inicio_entry.configure(state="disabled")
-            self.data_fim_entry.configure(state="disabled")
-            self.cnpjs_text.configure(state="disabled")
+            self._progress.configure(mode="indeterminate")
+            self._progress.start()
+            self._spinner.pack(side="left", padx=(10, 0))
+            self._spinner.start()
+            self._run_btn.stop_glow()
         else:
-            self._toggle_data_entries()
-            self.cnpjs_text.configure(state="normal")
+            self._progress.stop()
+            self._progress.configure(mode="determinate")
+            self._spinner.stop()
+            self._spinner.pack_forget()
+            self._run_btn.start_glow(base=P.accent, peak=P.accent_light)
+            self.cancel_ev = None
 
-    # ----------------------------------------------------------------- config
-    def _salvar_config(self) -> None:
+    def _set_status(self, text: str, color: str) -> None:
+        self._status_txt.configure(text=text, text_color=color)
+        self._status_dot.set_color(color)
+        self._hdr_status_lbl.configure(text=text, text_color=color)
+        self._hdr_pulse.set_color(color)
+
+    # ══════════════════════════════════════════════════════════════════════════
+    # LOGS
+    # ══════════════════════════════════════════════════════════════════════════
+    def _setup_logging(self) -> None:
+        h = QueueLogHandler(self.log_queue)
+        h.setLevel(logging.DEBUG)
+        h.setFormatter(logging.Formatter("%(asctime)s  %(levelname)-8s  %(message)s", "%H:%M:%S"))
+        self._log_handler = h
+        logging.getLogger().addHandler(h)
+        logging.getLogger().setLevel(logging.INFO)
+        self.after(200, lambda: self._insert_log("Interface pronta.", "INFO"))
+
+    _MAX_LINES = 4000
+    _TRIM_CHUNK = 400
+
+    def _poll_logs(self) -> None:
+        chunks: list[tuple[str, str]] = []
+        try:
+            while True:
+                rec = self.log_queue.get_nowait()
+                if not self._passes_filter(rec):
+                    continue
+                chunks.append((self._log_handler.format(rec), rec.levelname))
+        except queue.Empty:
+            pass
+        if chunks:
+            self._flush(chunks)
+        self.after(120, self._poll_logs)
+
+    def _passes_filter(self, rec: logging.LogRecord) -> bool:
+        if self._log_filter == "ALL":
+            return True
+        if self._log_filter == "ERRO":
+            return rec.levelno >= logging.ERROR
+        return rec.levelno >= logging.INFO
+
+    def _flush(self, chunks: list[tuple[str, str]]) -> None:
+        inner = self._logs_txt._textbox
+        self._logs_txt.configure(state="normal")
+        for msg, lv in chunks:
+            sep = msg.find("  ")
+            if sep > 0:
+                inner.insert("end", msg[:sep + 2], "TS")
+                inner.insert("end", msg[sep + 2:] + "\n", lv)
+            else:
+                inner.insert("end", msg + "\n", lv)
+        total = int(inner.index("end-1c").split(".")[0])
+        if total > self._MAX_LINES + self._TRIM_CHUNK:
+            inner.delete("1.0", f"{total - self._MAX_LINES}.0")
+        self._logs_txt.configure(state="disabled")
+        inner.see("end")
+
+    def _insert_log(self, msg: str, lv: str = "INFO") -> None:
+        now = datetime.now().strftime("%H:%M:%S")
+        self._flush([(f"{now}  {lv:<8}  {msg}", lv)])
+
+    def _clear_logs(self) -> None:
+        self._logs_txt.configure(state="normal")
+        self._logs_txt._textbox.delete("1.0", "end")
+        self._logs_txt.configure(state="disabled")
+
+    def _copy_logs(self) -> None:
+        txt = self._logs_txt._textbox.get("1.0", "end").strip()
+        if txt:
+            self.clipboard_clear()
+            self.clipboard_append(txt)
+
+    def _set_log_filter(self, val: str) -> None:
+        self._log_filter = val
+
+    # ══════════════════════════════════════════════════════════════════════════
+    # CONFIGURAÇÕES
+    # ══════════════════════════════════════════════════════════════════════════
+    def _save_config(self) -> None:
         if not CONFIG_PATH.exists():
             messagebox.showerror("Erro", "config.py não encontrado.", parent=self)
             return
-
         original = CONFIG_PATH.read_text(encoding="utf-8")
         novo = original
         try:
-            for chave, var in self.config_fields.items():
-                valor = var.get()
-                atual = getattr(config, chave, "")
+            for key, var in self._cfg_vars.items():
+                val = var.get()
+                atual = getattr(config, key, "")
                 if isinstance(atual, bool):
-                    literal = "True" if valor.strip().lower() in ("true", "1", "sim") else "False"
+                    lit = "True" if val.strip().lower() in ("true", "1", "sim") else "False"
                 elif isinstance(atual, int) and not isinstance(atual, bool):
-                    int(valor)  # valida
-                    literal = valor.strip()
+                    int(val)
+                    lit = val.strip()
                 else:
-                    literal = self._python_string_literal(valor)
-
-                novo = self._replace_config_assignment(novo, chave, literal)
+                    lit = f'r"{val}"' if "\\" in val and '"' not in val else f'"{val.replace(chr(34), chr(92)+chr(34))}"'
+                novo = re.sub(
+                    rf"^({re.escape(key)}\s*=\s*)(.+?)(\s*(?:#.*)?)$",
+                    lambda m, l=lit: f"{m.group(1)}{l}{m.group(3)}",
+                    novo, count=1, flags=re.MULTILINE,
+                )
         except ValueError as exc:
-            messagebox.showerror("Validação", f"Valor inválido: {exc}", parent=self)
+            messagebox.showerror("Validação", str(exc), parent=self)
             return
-
-        backup = CONFIG_PATH.with_suffix(".py.bak")
-        backup.write_text(original, encoding="utf-8")
+        CONFIG_PATH.with_suffix(".py.bak").write_text(original, encoding="utf-8")
         CONFIG_PATH.write_text(novo, encoding="utf-8")
-
         try:
-            import importlib
-            importlib.reload(config)
-        except Exception:  # noqa: BLE001
+            import importlib; importlib.reload(config)
+        except Exception:
             pass
+        messagebox.showinfo("Configurações", "Salvo com sucesso.", parent=self)
 
-        self.statusbar_var.set(f"Configurações salvas. Backup: {backup.name}")
-        messagebox.showinfo(
-            "Configurações",
-            "Configurações salvas com sucesso.\nUm backup foi gerado em config.py.bak.",
-            parent=self,
+    def _reload_config(self) -> None:
+        try:
+            import importlib; importlib.reload(config)
+        except Exception as exc:
+            messagebox.showerror("Erro", str(exc), parent=self)
+            return
+        for key, var in self._cfg_vars.items():
+            var.set(str(getattr(config, key, "")))
+
+    def _open_config(self) -> None:
+        try:
+            os.startfile(str(CONFIG_PATH))  # type: ignore[attr-defined]
+        except Exception as exc:
+            messagebox.showerror("Erro", str(exc), parent=self)
+
+    def _browse(self, key: str, kind: str) -> None:
+        var = self._cfg_vars[key]
+        cur = var.get()
+        if kind == "dir":
+            val = filedialog.askdirectory(parent=self, initialdir=cur or None)
+        else:
+            val = filedialog.askopenfilename(
+                parent=self, initialdir=str(Path(cur).parent) if cur else None,
+                filetypes=[("Planilhas", "*.xlsx *.xls"), ("Todos", "*.*")],
+            )
+        if val:
+            var.set(val)
+
+    # ── Helpers ───────────────────────────────────────────────────────────────
+    def _toggle_dates(self) -> None:
+        st = "disabled" if self._use_prev_month.get() else "normal"
+        self._dt_start.configure(state=st)
+        self._dt_end.configure(state=st)
+
+    def _on_dominio_toggle(self) -> None:
+        v = self._chk_dominio.get()
+        self._insert_log(
+            f"Importação no Domínio Web: {'ativada' if v else 'desativada'}.", "INFO"
         )
 
-    def _recarregar_config(self) -> None:
-        try:
-            import importlib
-            importlib.reload(config)
-        except Exception as exc:  # noqa: BLE001
-            messagebox.showerror("Erro", f"Falha ao recarregar: {exc}", parent=self)
-            return
-        for chave, var in self.config_fields.items():
-            var.set(str(getattr(config, chave, "")))
-        self.statusbar_var.set("Configurações recarregadas do disco.")
-
-    @staticmethod
-    def _python_string_literal(value: str) -> str:
-        escaped = value.replace("\\", "\\\\").replace('"', '\\"')
-        return f'r"{value}"' if ("\\" in value and '"' not in value) else f'"{escaped}"'
-
-    @staticmethod
-    def _replace_config_assignment(source: str, chave: str, literal: str) -> str:
-        pattern = re.compile(
-            rf"^(?P<prefix>{re.escape(chave)}\s*=\s*)(?P<value>.+?)(?P<suffix>\s*(?:#.*)?)$",
-            re.MULTILINE,
-        )
-
-        def repl(m: re.Match[str]) -> str:
-            return f"{m.group('prefix')}{literal}{m.group('suffix')}"
-
-        novo, n = pattern.subn(repl, source, count=1)
-        if n == 0:
-            novo = source.rstrip() + f"\n{chave} = {literal}\n"
-        return novo
-
-    def _abrir_config(self) -> None:
-        if not CONFIG_PATH.exists():
-            messagebox.showerror("Erro", "config.py não encontrado.", parent=self)
-            return
-        try:
-            if sys.platform == "win32":
-                os.startfile(str(CONFIG_PATH))  # type: ignore[attr-defined]
-            elif sys.platform == "darwin":
-                subprocess.run(["open", str(CONFIG_PATH)], check=False)
+    def _parse_cnpjs(self) -> list[str] | None:
+        raw = self._cnpjs_box.get("1.0", "end").strip()
+        if not raw:
+            return None
+        partes = [p for p in re.split(r"[\s,;]+", raw) if p]
+        result, bad = [], []
+        for p in partes:
+            d = re.sub(r"\D", "", p)
+            if len(d) == 14:
+                result.append(d)
             else:
-                subprocess.run(["xdg-open", str(CONFIG_PATH)], check=False)
-        except OSError as exc:
-            messagebox.showerror("Erro", f"Não foi possível abrir: {exc}", parent=self)
+                bad.append(p)
+        if bad:
+            raise ValueError(f"CNPJ inválido: {', '.join(bad[:3])}")
+        return result or None
 
-    def _abrir_pasta_saida(self) -> None:
+    def _on_count_certs(self) -> None:
+        if self.running:
+            return
+        threading.Thread(target=self._count_certs_worker, daemon=True).start()
+
+    def _count_certs_worker(self) -> None:
+        lg = logging.getLogger("nfse.gui")
+        try:
+            pasta = Path(str(getattr(config, "PASTA_CERTS", "")).strip())
+            if not pasta.exists():
+                raise FileNotFoundError(f"Pasta não encontrada: {pasta}")
+            certs = listar_certificados(pasta)
+            m, dup = indexar_certificados_por_cnpj(certs)
+            ok  = sum(1 for c in certs if not c.erro)
+            cnpj = sum(1 for c in certs if not c.erro and len(c.documento) == 14)
+            lg.info("Certificados: total=%d ok=%d e-CNPJ=%d duplicados=%d", len(certs), ok, cnpj, len(dup))
+        except Exception as exc:
+            lg.error("Falha ao contar certificados: %s", exc)
+
+    def _open_output(self) -> None:
         pasta = Path(getattr(config, "PASTA_SAIDA", ""))
         if not pasta.exists():
-            messagebox.showwarning(
-                "Pasta não encontrada",
-                f"A pasta de saída não existe:\n{pasta}",
-                parent=self,
-            )
+            messagebox.showwarning("Pasta não encontrada", str(pasta), parent=self)
             return
         try:
-            if sys.platform == "win32":
-                os.startfile(str(pasta))  # type: ignore[attr-defined]
-            elif sys.platform == "darwin":
-                subprocess.run(["open", str(pasta)], check=False)
-            else:
-                subprocess.run(["xdg-open", str(pasta)], check=False)
-        except OSError as exc:
-            messagebox.showerror("Erro", f"Não foi possível abrir: {exc}", parent=self)
+            os.startfile(str(pasta))  # type: ignore[attr-defined]
+        except Exception as exc:
+            messagebox.showerror("Erro", str(exc), parent=self)
 
-    # ----------------------------------------------------------------- close
+    def _rotate_tip(self) -> None:
+        self._tip_idx = (self._tip_idx + 1) % len(TIPS)
+        try:
+            self._tip_lbl.configure(text=TIPS[self._tip_idx])
+        except Exception:
+            pass
+        self.after(12_000, self._rotate_tip)
+
     def _on_close(self) -> None:
         if self.running:
-            if not messagebox.askyesno(
-                "Confirmar",
-                "Uma execução está em andamento. Deseja realmente sair?",
-                parent=self,
-            ):
+            if not messagebox.askyesno("Sair", "Automação em andamento. Sair mesmo assim?", parent=self):
                 return
-            if self.cancel_event:
-                self.cancel_event.set()
-        logging.getLogger().removeHandler(self.log_handler)
+            if self.cancel_ev:
+                self.cancel_ev.set()
+        logging.getLogger().removeHandler(self._log_handler)
         self.destroy()
 
 
+# ── Entrypoint ────────────────────────────────────────────────────────────────
 def main() -> None:
     app = NFSEGuiApp()
     app.mainloop()
 
 
 if __name__ == "__main__":
-    # Necessario para que ProcessPoolExecutor nao re-abra a GUI nos workers
-    # quando o app esta empacotado pelo PyInstaller (cada worker spawn reexecuta o .exe).
     import multiprocessing
-
     multiprocessing.freeze_support()
     main()

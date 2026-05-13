@@ -64,10 +64,17 @@ class ResultadoCNPJ:
     cnpj: str
     nome: str
     status: str
-    notas_encontradas: int = 0
-    arquivo_download: str = ""
+    notas_emitidas: int = 0
+    notas_recebidas: int = 0
+    arquivo_emitidas: str = ""
+    arquivo_recebidas: str = ""
     thumbprint: str = ""
     erro: str = ""
+    importado_dominio: bool = False
+
+    @property
+    def notas_encontradas(self) -> int:
+        return self.notas_emitidas + self.notas_recebidas
 
 
 @dataclass
@@ -93,10 +100,14 @@ class NFSePlaywrightRunner:
         cliente: Cliente,
         cert: CertificadoInfo,
         params: Parametros,
-    ) -> tuple[int, str]:
+    ) -> tuple[int, str, int, str]:
+        """Retorna (notas_emitidas, arquivo_emitidas, notas_recebidas, arquivo_recebidas)."""
         _check_cancel(self.cancel_event, f"[{cliente.cnpj}] Execucao cancelada antes de abrir navegador.")
         output_dir = self.base_output / cliente.cnpj
-        output_dir.mkdir(parents=True, exist_ok=True)
+        dir_emitidas = output_dir / "emitidas"
+        dir_recebidas = output_dir / "recebidas"
+        dir_emitidas.mkdir(parents=True, exist_ok=True)
+        dir_recebidas.mkdir(parents=True, exist_ok=True)
 
         context = self._abrir_contexto(cert, output_dir)
         try:
@@ -105,14 +116,45 @@ class NFSePlaywrightRunner:
             page.set_default_timeout(self.timeout_ms)
 
             self._login_com_certificado(page, cliente, cert)
-            notas = self._detectar_notas_periodo(page, params, cliente)
 
-            arquivo = ""
-            if notas > 0:
-                arquivo = str(self._baixar_nfse(page, output_dir, cliente))
-            return notas, arquivo
+            notas_emitidas, arq_emitidas = self._processar_tipo(
+                page, params, cliente, "emitidas", dir_emitidas
+            )
+            notas_recebidas, arq_recebidas = self._processar_tipo(
+                page, params, cliente, "recebidas", dir_recebidas
+            )
+            return notas_emitidas, arq_emitidas, notas_recebidas, arq_recebidas
         finally:
             context.close()
+
+    def _processar_tipo(
+        self,
+        page: "Page",
+        params: Parametros,
+        cliente: Cliente,
+        tipo: str,
+        output_dir: Path,
+    ) -> tuple[int, str]:
+        """Navega, filtra, conta e baixa notas de um tipo (emitidas ou recebidas)."""
+        _check_cancel(self.cancel_event, f"[{cliente.cnpj}] Cancelado antes de processar {tipo}.")
+        url_cfg = "NFSE_EMITIDAS_URL" if tipo == "emitidas" else "NFSE_RECEBIDAS_URL"
+        url = str(getattr(config, url_cfg, "")).strip()
+        if not url:
+            log.warning("[%s] URL de %s nao configurada, pulando.", cliente.cnpj, tipo)
+            return 0, ""
+
+        log.info("[%s] Processando %s: %s", cliente.cnpj, tipo, url)
+        page.goto(url, wait_until="domcontentloaded")
+        _check_cancel(self.cancel_event, f"[{cliente.cnpj}] Cancelado apos navegar para {tipo}.")
+
+        self._aplicar_filtros_periodo(page, params, cliente)
+        notas = self._contar_notas(page, cliente)
+        log.info("[%s] %s no periodo: %d nota(s)", cliente.cnpj, tipo.capitalize(), notas)
+
+        arquivo = ""
+        if notas > 0:
+            arquivo = str(self._baixar_nfse(page, output_dir, cliente))
+        return notas, arquivo
 
     def _abrir_contexto(self, cert: CertificadoInfo, output_dir: Path):
         _check_cancel(self.cancel_event, "Execucao cancelada antes de abrir contexto do navegador.")
@@ -262,25 +304,6 @@ class NFSePlaywrightRunner:
             "Nao foi possivel localizar o botao de login por certificado no portal NFS-e. "
             "Ajuste NFSE_SELECTOR_BOTAO_CERTIFICADO em config.py."
         )
-
-    def _detectar_notas_periodo(self, page: Page, params: Parametros, cliente: Cliente) -> int:
-        _check_cancel(self.cancel_event, f"[{cliente.cnpj}] Execucao cancelada antes da deteccao de notas.")
-        emitidas_url = str(getattr(config, "NFSE_EMITIDAS_URL", "")).strip()
-        if emitidas_url:
-            log.info("[%s] Abrindo consulta de notas: %s", cliente.cnpj, emitidas_url)
-            page.goto(emitidas_url, wait_until="domcontentloaded")
-            _check_cancel(self.cancel_event, f"[{cliente.cnpj}] Execucao cancelada durante navegacao.")
-
-        self._aplicar_filtros_periodo(page, params, cliente)
-        notas = self._contar_notas(page, cliente)
-        log.info(
-            "[%s] Deteccao de notas no periodo %s -> %s: %d",
-            cliente.cnpj,
-            params.data_inicio,
-            params.data_fim,
-            notas,
-        )
-        return notas
 
     def _aplicar_filtros_periodo(self, page: Page, params: Parametros, cliente: Cliente) -> None:
         _check_cancel(self.cancel_event, f"[{cliente.cnpj}] Execucao cancelada antes de aplicar filtros.")
@@ -636,14 +659,16 @@ def executar_local(
                 nome = cert.nome_amigavel or cnpj
 
             try:
-                notas, arquivo = runner.processar_cliente(Cliente(cnpj=cnpj, nome=nome), cert, params)
+                ne, ae, nr, ar = runner.processar_cliente(Cliente(cnpj=cnpj, nome=nome), cert, params)
                 resultados.append(
                     ResultadoCNPJ(
                         cnpj=cnpj,
                         nome=nome,
                         status="ok",
-                        notas_encontradas=notas,
-                        arquivo_download=arquivo,
+                        notas_emitidas=ne,
+                        arquivo_emitidas=ae,
+                        notas_recebidas=nr,
+                        arquivo_recebidas=ar,
                         thumbprint=cert.thumbprint_sha1,
                     )
                 )
@@ -661,7 +686,56 @@ def executar_local(
                     )
                 )
 
+    # Fase 2: importar XMLs no Domínio Web (empresa por empresa)
+    if bool(getattr(config, "DOMINIO_WEB_IMPORTAR", False)):
+        _importar_dominio_web(resultados, cancel_event)
+
     return resultados
+
+
+def _importar_dominio_web(
+    resultados: list[ResultadoCNPJ],
+    cancel_event: threading.Event | None,
+) -> None:
+    """Itera pelos resultados com notas baixadas e importa no Domínio Web."""
+    try:
+        from dominio_importer import DominioImporter
+    except ImportError:
+        log.warning("dominio_importer nao encontrado — importacao no Dominio Web ignorada.")
+        return
+
+    importer = DominioImporter()
+    base_saida = Path(config.PASTA_SAIDA)
+
+    for resultado in resultados:
+        _check_cancel(cancel_event, "Execucao cancelada antes de importar no Dominio.")
+        if resultado.status != "ok":
+            continue
+        if resultado.notas_emitidas == 0 and resultado.notas_recebidas == 0:
+            log.info("[%s] Sem notas — pula importacao no Dominio Web.", resultado.cnpj)
+            continue
+
+        pastas_xml: list[Path] = []
+        dir_empresa = base_saida / resultado.cnpj
+        for sub in ("emitidas", "recebidas"):
+            d = dir_empresa / sub
+            if d.exists() and list(d.glob("*.xml")):
+                pastas_xml.append(d)
+
+        if not pastas_xml:
+            log.info("[%s] Nenhum XML encontrado para importar.", resultado.cnpj)
+            continue
+
+        try:
+            log.info("[%s] Iniciando importacao no Dominio Web...", resultado.cnpj)
+            ok = importer.importar(resultado.cnpj, resultado.nome, pastas_xml)
+            resultado.importado_dominio = ok
+            if ok:
+                log.info("[%s] Importacao no Dominio Web concluida.", resultado.cnpj)
+            else:
+                log.warning("[%s] Importacao no Dominio Web falhou ou foi ignorada.", resultado.cnpj)
+        except Exception as exc:  # noqa: BLE001
+            log.error("[%s] Erro ao importar no Dominio Web: %s", resultado.cnpj, exc)
 
 
 def montar_mensagem(resultados: list[ResultadoCNPJ], params: Parametros) -> dict:
@@ -669,15 +743,20 @@ def montar_mensagem(resultados: list[ResultadoCNPJ], params: Parametros) -> dict
     ok = sum(1 for r in resultados if r.status == "ok")
     erro = sum(1 for r in resultados if r.status == "erro")
     total = len(resultados)
-    total_notas = sum(r.notas_encontradas for r in resultados if r.status == "ok")
+    total_emitidas = sum(r.notas_emitidas for r in resultados if r.status == "ok")
+    total_recebidas = sum(r.notas_recebidas for r in resultados if r.status == "ok")
+    total_notas = total_emitidas + total_recebidas
 
     linhas: list[str] = []
     for r in resultados:
         if r.status == "ok":
-            detalhe = f"notas={r.notas_encontradas}"
-            if r.arquivo_download:
-                detalhe += f" | arquivo={Path(r.arquivo_download).name}"
-            linhas.append(f"- OK   | {r.cnpj} | {r.nome} | {detalhe}")
+            detalhe = f"emitidas={r.notas_emitidas} | recebidas={r.notas_recebidas}"
+            if r.arquivo_emitidas:
+                detalhe += f" | arq_emit={Path(r.arquivo_emitidas).name}"
+            if r.arquivo_recebidas:
+                detalhe += f" | arq_rec={Path(r.arquivo_recebidas).name}"
+            dominio = " | dominio=OK" if r.importado_dominio else ""
+            linhas.append(f"- OK   | {r.cnpj} | {r.nome} | {detalhe}{dominio}")
         else:
             linhas.append(f"- ERRO | {r.cnpj} | {r.nome}")
             linhas.append(f"  Erro: {r.erro}")
@@ -694,7 +773,9 @@ def montar_mensagem(resultados: list[ResultadoCNPJ], params: Parametros) -> dict
             f"Total CNPJs: {total}",
             f"Sucesso: {ok}",
             f"Erros: {erro}",
-            f"Notas detectadas: {total_notas}",
+            f"Notas emitidas: {total_emitidas}",
+            f"Notas recebidas: {total_recebidas}",
+            f"Total notas: {total_notas}",
             "",
             "Detalhes:",
             *(linhas or ["- Nenhum item processado."]),

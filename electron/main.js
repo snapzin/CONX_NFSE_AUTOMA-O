@@ -11,6 +11,7 @@ const API_URL = `http://127.0.0.1:${API_PORT}`;
 
 // Detectar se está em modo produção (empacotado)
 const isProd = app.isPackaged;
+const DEV_RENDERER_URL = process.env.VITE_DEV_SERVER_URL || 'http://127.0.0.1:5173';
 
 // Caminho para o executável Python
 const getPythonPath = () => {
@@ -104,8 +105,15 @@ const createWindow = () => {
     },
   });
 
-  const indexPath = path.join(__dirname, 'renderer', 'index.html');
-  mainWindow.loadFile(indexPath);
+  if (isProd) {
+    mainWindow.loadFile(path.join(__dirname, 'renderer-dist', 'index.html'));
+  } else {
+    mainWindow.loadURL(DEV_RENDERER_URL).catch(() => {
+      const builtIndex = path.join(__dirname, 'renderer-dist', 'index.html');
+      const legacyIndex = path.join(__dirname, 'renderer', 'index.html');
+      mainWindow.loadFile(fs.existsSync(builtIndex) ? builtIndex : legacyIndex);
+    });
+  }
 
   // DevTools em desenvolvimento
   if (!isProd) {

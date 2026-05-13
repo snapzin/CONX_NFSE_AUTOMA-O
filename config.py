@@ -11,7 +11,8 @@ CHROME_EXTENSION_DIR = ""
 
 # PORTAL NFSE / PLAYWRIGHT
 NFSE_LOGIN_URL = "https://www.nfse.gov.br/EmissorNacional/Login?ReturnUrl=%2fEmissorNacional"
-NFSE_EMITIDAS_URL = "https://www.nfse.gov.br/EmissorNacional"
+NFSE_EMITIDAS_URL = "https://www.nfse.gov.br/EmissorNacional/Notas/Emitidas"
+NFSE_RECEBIDAS_URL = "https://www.nfse.gov.br/EmissorNacional/Notas/Recebidas"
 AUTOSELECT_CERTIFICATE_PATTERNS = "https://www.nfse.gov.br/*"
 CHROME_EXECUTABLE_PATH = ""
 CHROME_CHANNEL = "chromium"
@@ -39,6 +40,21 @@ NFSE_ATALHO_EXTENSAO = "Control+Shift+Y"  # Ajuste conforme seu atalho
 # PLANILHA (XLSX)
 XLSX_COLUNA_CNPJ = "CNPJ"
 XLSX_COLUNA_NOME = "NOME"
+
+# DOMINIO WEB (importação de XMLs via browser)
+DOMINIO_WEB_URL = "https://www.dominioweb.com.br/"
+# Módulo a selecionar após login (ex: "Escrita Fiscal")
+DOMINIO_WEB_MODULO = "Escrita Fiscal"
+# Se True, executa a importação no Domínio Web após baixar as notas
+DOMINIO_WEB_IMPORTAR = True
+# Credenciais das empresas no Domínio Web: mapeamento CNPJ -> {"usuario": "...", "senha": "..."}
+# Deixe vazio para pedir via popup a cada execução
+DOMINIO_WEB_CREDENCIAIS: dict = {}
+# Exemplo:
+# DOMINIO_WEB_CREDENCIAIS = {
+#     "12345678000100": {"usuario": "usuario1", "senha": "senha1"},
+#     "98765432000100": {"usuario": "usuario2", "senha": "senha2"},
+# }
 
 # ZOHO MAIL (SMTP)
 ZOHO_SMTP_HOST = "smtppro.zoho.com"
