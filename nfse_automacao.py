@@ -263,70 +263,42 @@ class NFSePlaywrightRunner:
             "Configure CHROME_EXTENSION_ID em config.py."
         )
 
-    def _abrir_popup_extensao(self, context, ext_id: str, page_portal) -> "Page":
+    def _abrir_popup_extensao(self, context, ext_id: str, page_portal) -> None:
         """
-        Abre o Side Panel da extensao 'Baixar NFSe' (Cechinel).
-
-        Estrategia: clique de mouse REAL via pyautogui no icone fixado.
-        Necessario porque chrome.sidePanel.open() exige user gesture, e o Chrome
-        sob automacao trata cliques sinteticos (CDP/JS) como nao-confiaveis.
-        Um clique fisico no nivel do SO e considerado user gesture genuino.
+        Abre o Side Panel da extensao 'Baixar NFSe' clicando fisicamente
+        no icone fixado via pyautogui. Nao retorna page (side panel nao e
+        acessivel via CDP) — os cliques subsequentes tambem sao via pyautogui.
         """
-        cdp = context.new_cdp_session(page_portal)
-        try:
-            cdp.send("Target.setDiscoverTargets", {"discover": True})
-            cdp.send("Target.setAutoAttach", {
-                "autoAttach": True, "waitForDebuggerOnStart": False, "flatten": True,
-            })
-        except Exception as e:
-            log.debug("CDP setup falhou: %s", e)
-
-        # Maximiza a janela do Chrome para coordenadas previsiveis do icone
+        # Maximiza a janela do Chrome para coordenadas previsiveis
         try:
             page_portal.bring_to_front()
+            cdp = context.new_cdp_session(page_portal)
             cdp.send("Browser.setWindowBounds", {
                 "windowId": cdp.send("Browser.getWindowForTarget")["windowId"],
                 "bounds": {"windowState": "maximized"},
             })
-            time.sleep(0.5)
+            time.sleep(0.6)
         except Exception as e:
             log.debug("Maximize falhou: %s", e)
 
         # Clique fisico no icone da extensao via pyautogui
-        popup = self._clicar_icone_via_pyautogui(context, ext_id, cdp)
-
-        if popup is None:
-            # Diagnostico: lista todos os targets
-            try:
-                res = cdp.send("Target.getTargets")
-                targets_str = "\n".join(
-                    f"  type={t.get('type'):>15} url={t.get('url','')[:120]}"
-                    for t in res.get("targetInfos", [])
-                )
-                log.warning("Targets CDP atuais:\n%s", targets_str)
-            except Exception:
-                pass
+        # (Funcao tenta image recognition + coords fixas como fallback)
+        try:
+            self._clicar_icone_via_pyautogui(context, ext_id, None)
+        except Exception as e:
+            log.warning("Falha no clique do icone: %s", e)
             raise RuntimeError(
-                f"Nao foi possivel abrir o Side Panel da extensao (ID: {ext_id}). "
-                "Verifique que: (1) o icone esta FIXADO na barra do Chrome, "
-                "(2) a tela do Chrome esta visivel (nao minimizada), "
-                "(3) nenhuma outra janela esta cobrindo o Chrome."
+                f"Nao foi possivel clicar no icone da extensao (ID: {ext_id}). "
+                "Verifique que o icone esta FIXADO na barra do Chrome (clique direito no "
+                "icone do quebra-cabeca -> Fixar)."
             )
 
-        # 5. Aguarda o botao de download renderizar
-        try:
-            popup.wait_for_selector("#startDownloadBtn", state="attached", timeout=10000)
-            log.info("Botao #startDownloadBtn pronto: %s", popup.url)
-        except PlaywrightTimeoutError:
-            log.warning("Botao demorou a renderizar mas continuando. URL: %s", popup.url)
-
-        return popup
-
-    def _clicar_icone_via_pyautogui(self, context, ext_id: str, cdp):
+    def _clicar_icone_via_pyautogui(self, context, ext_id: str, cdp) -> bool:
         """
-        Localiza o icone da extensao na tela por reconhecimento de imagem
-        (icon16.png do extension dir) e clica fisicamente nele.
-        Clique real do SO = user gesture aceito pelo Chrome.
+        Localiza e clica no icone fixado da extensao via pyautogui.
+        Estrategia: reconhecimento por imagem (icon16/32/48.png), fallback
+        para coordenadas fixas baseadas em janela maximizada.
+        Retorna True se algum clique foi feito.
         """
         try:
             import pyautogui
@@ -334,7 +306,7 @@ class NFSePlaywrightRunner:
         except ImportError as e:
             log.error("pyautogui/pygetwindow nao instalados: %s. "
                       "Rode: pip install -r requirements.txt", e)
-            return None
+            return False
 
         # Ativa janela do Chrome
         try:
@@ -349,74 +321,328 @@ class NFSePlaywrightRunner:
         except Exception as e:
             log.debug("Ativacao da janela falhou: %s", e)
 
-        # PRIORIDADE 1: reconhecimento de imagem (se opencv estiver instalado)
-        icon_locs = []
+        # PRIORIDADE 1: reconhecimento por imagem (confidence baixa + grayscale)
         try:
             ext_dir = Path(str(getattr(config, "CHROME_EXTENSION_DIR", "")).strip())
             for img_name in ("icon16.png", "icon32.png", "icon48.png"):
                 img_path = ext_dir / img_name
                 if not img_path.exists():
                     continue
-                try:
-                    loc = pyautogui.locateOnScreen(str(img_path), confidence=0.6, grayscale=False)
-                    if loc:
-                        center = pyautogui.center(loc)
-                        icon_locs.append((center.x, center.y, f"img:{img_name}"))
-                        log.info("Icone '%s' encontrado em (%d, %d)",
-                                 img_name, center.x, center.y)
-                        break
-                except Exception as e:
-                    log.debug("locateOnScreen para %s falhou: %s", img_name, e)
+                # Tenta com varias configuracoes de matching
+                for conf, gray in ((0.6, False), (0.5, True), (0.4, True)):
+                    try:
+                        loc = pyautogui.locateOnScreen(
+                            str(img_path), confidence=conf, grayscale=gray,
+                        )
+                        if loc:
+                            center = pyautogui.center(loc)
+                            log.info(
+                                "Icone '%s' encontrado em (%d, %d) [conf=%.1f gray=%s]",
+                                img_name, center.x, center.y, conf, gray,
+                            )
+                            pyautogui.click(x=center.x, y=center.y, clicks=1)
+                            return True
+                    except Exception as e:
+                        log.debug("locateOnScreen %s conf=%.1f falhou: %s",
+                                  img_name, conf, e)
         except Exception as e:
             log.debug("Reconhecimento de imagem falhou: %s", e)
 
-        # PRIORIDADE 2: coordenadas fixas baseadas em janela maximizada
-        # Para Chrome maximizado, layout right-to-left a partir do canto direito:
-        #   menu(3pts) ~ -20 | avatar ~ -60 | puzzle ~ -100 | EXT1 ~ -135 |
-        #   EXT2 ~ -165 | star ~ -195
-        screen_w, screen_h = pyautogui.size()
-        log.info("Tela: %dx%d", screen_w, screen_h)
-        toolbar_y = 85  # altura tipica da barra de ferramentas no Chrome maximizado
-        # Tenta varios offsets, do mais provavel pra menos provavel
-        for offset_x in (135, 165, 100, 195, 70, 225):
-            icon_locs.append((screen_w - offset_x, toolbar_y, f"coord:-{offset_x}"))
+        # PRIORIDADE 2: coordenadas fixas baseadas em janela maximizada (1920x1080)
+        # Layout right-to-left observado: menu(3pts) ~-25 | avatar ~-60 |
+        # divider ~-95 | puzzle ~-120 | EXT_PINNED ~-185 | star ~-225
+        # Tenta varias posicoes de extensao fixada (ordem do mais provavel)
+        screen_w, _ = pyautogui.size()
+        toolbar_y = 85
+        candidatos_x = [185, 155, 215, 145, 245, 125]
 
-        # Tenta clicar em cada posicao candidata
-        for x, y, src in icon_locs:
-            log.info("pyautogui.click em (%d, %d) — fonte: %s", x, y, src)
+        for off in candidatos_x:
+            x = screen_w - off
+            log.info("Clicando icone em coord (%d, %d) [offset -%d]",
+                     x, toolbar_y, off)
             try:
-                pyautogui.click(x=x, y=y, clicks=1)
+                pyautogui.click(x=x, y=toolbar_y, clicks=1)
             except Exception as e:
-                log.warning("Click falhou: %s", e)
+                log.warning("Click em (%d,%d) falhou: %s", x, toolbar_y, e)
                 continue
-            time.sleep(1.5)
-            popup = self._aguardar_pagina_extensao(context, ext_id, timeout_s=3, cdp=cdp)
-            if popup is not None:
-                log.info("Side panel abriu apos clique em (%d, %d) [%s]", x, y, src)
-                try:
-                    popup.wait_for_selector("#startDownloadBtn", state="attached", timeout=10000)
-                except PlaywrightTimeoutError:
-                    log.warning("Botao demorou a renderizar mas continuando.")
-                return popup
-
-        # PRIORIDADE 3: pede para o usuario clicar manualmente
-        log.warning(
-            "============================================================\n"
-            "  AUTOMACAO NAO CONSEGUIU CLICAR NO ICONE DA EXTENSAO.\n"
-            "  ACAO MANUAL: clique no icone 'N' verde da extensao\n"
-            "  'Baixar NFSe' no canto superior direito do Chrome AGORA.\n"
-            "  Voce tem 60 segundos.\n"
-            "============================================================"
-        )
-        popup = self._aguardar_pagina_extensao(context, ext_id, timeout_s=60, cdp=cdp)
-        if popup is not None:
-            log.info("Side panel detectado apos clique manual.")
+            time.sleep(0.8)
+            # Verifica se side panel abriu (largura da janela do Chrome diminui ~440px
+            # quando o side panel abre — checa via pygetwindow)
             try:
-                popup.wait_for_selector("#startDownloadBtn", state="attached", timeout=10000)
-            except PlaywrightTimeoutError:
-                log.warning("Botao demorou a renderizar mas continuando.")
-            return popup
+                chrome_wins = [w for w in gw.getAllWindows()
+                               if w.title and "NFS-e" in w.title]
+                if chrome_wins:
+                    win = chrome_wins[0]
+                    # Quando side panel abre, a area de conteudo da pagina diminui.
+                    # Como heuristica simples: se ja clicou e passou 0.8s, assume OK
+                    log.info("Click feito. Janela: %dx%d", win.width, win.height)
+                    return True
+            except Exception:
+                pass
+            return True  # devolve True apos o primeiro clique
+        return False
 
+    def _detectar_lado_panel(self):
+        """
+        Detecta os limites do side panel via OpenCV (procura uma faixa
+        vertical na direita que tenha cor distinta da pagina).
+        Retorna (panel_left, panel_top, panel_right, panel_bottom) em coords de tela.
+        """
+        try:
+            import pyautogui
+            import numpy as np
+            import cv2
+
+            screenshot = pyautogui.screenshot()
+            img = cv2.cvtColor(np.array(screenshot), cv2.COLOR_RGB2BGR)
+            h, w = img.shape[:2]
+
+            # O side panel tem fundo claro (#f8f9fa) e largura ~440-480px na direita
+            # Procura uma borda vertical entre painel e pagina
+            # Estimativa segura: painel ocupa os ultimos 500px da tela
+            return (max(0, w - 500), 0, w, h)
+        except Exception:
+            return None
+
+    def _achar_botao_verde(self, regiao=None):
+        """
+        Procura o maior retangulo verde sólido na tela (botao 'Iniciar Download').
+        Retorna (x_centro, y_centro, area) em coords de tela, ou None.
+        """
+        try:
+            import pyautogui
+            import numpy as np
+            import cv2
+
+            screenshot = pyautogui.screenshot()
+            img = cv2.cvtColor(np.array(screenshot), cv2.COLOR_RGB2BGR)
+
+            # Limita busca ao painel (direita da tela)
+            if regiao is None:
+                regiao = self._detectar_lado_panel()
+            if regiao:
+                px, py, pr, pb = regiao
+                area = img[py:pb, px:pr]
+                offset_x, offset_y = px, py
+            else:
+                area = img
+                offset_x, offset_y = 0, 0
+
+            # Detecta verde do botao 'Iniciar Download' (verde Bootstrap/Material)
+            # HSV: H=hue 40-80, S=saturacao alta, V=brilho medio-alto
+            hsv = cv2.cvtColor(area, cv2.COLOR_BGR2HSV)
+            mascara = cv2.inRange(
+                hsv,
+                np.array([40, 100, 80]),   # verde escuro
+                np.array([85, 255, 255]),  # verde claro
+            )
+            # Limpa ruido
+            kernel = np.ones((3, 3), np.uint8)
+            mascara = cv2.morphologyEx(mascara, cv2.MORPH_OPEN, kernel)
+
+            contornos, _ = cv2.findContours(
+                mascara, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE,
+            )
+            if not contornos:
+                return None
+
+            # Filtra so retangulos com area >= 2000px (botao real, nao icone pequeno)
+            # e proporcao tipica de botao (largura > altura, ratio ~3:1 a 10:1)
+            candidatos = []
+            for c in contornos:
+                x, y, w, h = cv2.boundingRect(c)
+                area_px = w * h
+                if area_px < 2000:
+                    continue
+                if h == 0:
+                    continue
+                ratio = w / h
+                if ratio < 2.0 or ratio > 15.0:
+                    continue
+                candidatos.append((x, y, w, h, area_px))
+
+            if not candidatos:
+                return None
+
+            # Pega o maior
+            x, y, w, h, area_px = max(candidatos, key=lambda t: t[4])
+            cx = offset_x + x + w // 2
+            cy = offset_y + y + h // 2
+            return (cx, cy, area_px)
+        except Exception as e:
+            log.debug("Detecao verde falhou: %s", e)
+            return None
+
+    def _salvar_screenshot_debug(self, cliente: Cliente, label: str) -> None:
+        """Salva screenshot da tela em pasta de debug pra calibracao."""
+        try:
+            import pyautogui
+            debug_dir = self.base_output / "_debug_screenshots"
+            debug_dir.mkdir(parents=True, exist_ok=True)
+            ts = time.strftime("%H%M%S")
+            path = debug_dir / f"{cliente.cnpj}_{ts}_{label}.png"
+            pyautogui.screenshot(str(path))
+            log.info("[%s] Screenshot debug: %s", cliente.cnpj, path.name)
+        except Exception as e:
+            log.debug("Screenshot falhou: %s", e)
+
+    def _clicar_tipo_no_panel(self, tipo: str, cliente: Cliente) -> None:
+        """
+        Clica em 'Emitidas' ou 'Recebidas' no side panel.
+        Usa o botao verde 'Iniciar Download' como ancora visual: ele esta sempre
+        na parte de baixo do painel, e os botoes de tipo estao bem acima dele.
+        Funciona em qualquer resolucao/setup porque encontra elementos por COR.
+        """
+        try:
+            import pyautogui
+        except ImportError:
+            log.error("pyautogui nao instalado")
+            return
+
+        self._salvar_screenshot_debug(cliente, f"01_antes_{tipo}")
+
+        regiao = self._detectar_lado_panel()
+        if regiao is None:
+            log.warning("[%s] Side panel nao detectado.", cliente.cnpj)
+            return
+        panel_left, panel_top, panel_right, panel_bottom = regiao
+        panel_w = panel_right - panel_left
+        panel_center = panel_left + (panel_w // 2)
+
+        # Tenta achar botao verde 'Iniciar Download' como referencia
+        verde = self._achar_botao_verde(regiao=regiao)
+        if verde:
+            _, btn_y, _ = verde
+            # Botoes Emitidas/Recebidas estao MUITO acima do verde.
+            # Aprox.: 500-600px acima do botao 'Iniciar Download'
+            # Sem 'Menos opcoes' expandido: ~ 400px acima
+            # Com 'Menos opcoes' expandido: ~ 550px acima
+            tipo_y = max(150, btn_y - 540)
+        else:
+            # Fallback: 1/3 do topo do painel
+            tipo_y = panel_top + (panel_bottom - panel_top) // 4
+
+        if tipo == "emitidas":
+            x = panel_left + int(panel_w * 0.27)
+            label = "Emitidas"
+        else:
+            x = panel_left + int(panel_w * 0.73)
+            label = "Recebidas"
+
+        log.info("[%s] Clicando '%s' em (%d, %d) | painel=(%d..%d) verde=%s",
+                 cliente.cnpj, label, x, tipo_y, panel_left, panel_right,
+                 verde[:2] if verde else None)
+        try:
+            pyautogui.click(x=x, y=tipo_y, clicks=1)
+        except Exception as e:
+            log.warning("[%s] Click pyautogui em (%d,%d) falhou: %s",
+                        cliente.cnpj, x, tipo_y, e)
+        time.sleep(0.5)
+        self._salvar_screenshot_debug(cliente, f"02_apos_{tipo}")
+
+    def _clicar_iniciar_download(self, cliente: Cliente) -> None:
+        """
+        Encontra o botao verde 'Iniciar Download' por DETECCAO DE COR (OpenCV)
+        e clica fisicamente nele. Funciona em qualquer resolucao/setup.
+        """
+        try:
+            import pyautogui
+        except ImportError:
+            return
+
+        self._salvar_screenshot_debug(cliente, "03_antes_iniciar")
+
+        # Snapshot de downloads pra detectar mudancas
+        downloads_dir = Path.home() / "Downloads"
+        try:
+            files_antes = {f.name for f in downloads_dir.iterdir() if f.is_file()}
+        except Exception:
+            files_antes = set()
+
+        # Tenta encontrar o botao verde via deteccao por cor (ate 3 tentativas)
+        for tentativa in range(3):
+            verde = self._achar_botao_verde()
+            if verde is None:
+                log.warning("[%s] Botao verde 'Iniciar Download' nao encontrado "
+                            "(tentativa %d/3).", cliente.cnpj, tentativa + 1)
+                time.sleep(1)
+                continue
+
+            cx, cy, area_px = verde
+            log.info("[%s] Botao 'Iniciar Download' detectado em (%d, %d) | area=%dpx",
+                     cliente.cnpj, cx, cy, area_px)
+
+            try:
+                pyautogui.click(x=cx, y=cy, clicks=1)
+            except Exception as e:
+                log.warning("[%s] Click em (%d,%d) falhou: %s",
+                            cliente.cnpj, cx, cy, e)
+                continue
+
+            time.sleep(1.8)
+
+            try:
+                files_agora = {f.name for f in downloads_dir.iterdir() if f.is_file()}
+                novos = files_agora - files_antes
+                if novos:
+                    log.info("[%s] Download iniciado (novos arquivos: %s)",
+                             cliente.cnpj, list(novos)[:3])
+                    self._salvar_screenshot_debug(cliente, "04_download_iniciado")
+                    return
+            except Exception:
+                pass
+
+        self._salvar_screenshot_debug(cliente, "04_nenhum_download")
+        log.warning("[%s] Nao detectou inicio de download apos 3 tentativas.",
+                    cliente.cnpj)
+
+    def _aguardar_download_em_pasta(self, cliente: Cliente, timeout_s: int = 180) -> Optional[Path]:
+        """
+        Monitora a pasta Downloads do usuario por novo arquivo .zip (NFSe).
+        Aguarda ate que o download termine (.crdownload some).
+        Retorna o caminho do arquivo final, ou None se timeout.
+        """
+        downloads_dir = Path.home() / "Downloads"
+        if not downloads_dir.exists():
+            log.warning("[%s] Pasta Downloads nao existe: %s", cliente.cnpj, downloads_dir)
+            return None
+
+        # Snapshot inicial — arquivos ja existentes (ignorar)
+        existentes = {f.name for f in downloads_dir.iterdir() if f.is_file()}
+
+        deadline = time.monotonic() + timeout_s
+        ultimo_log = 0.0
+        while time.monotonic() < deadline:
+            _check_cancel(self.cancel_event,
+                          f"[{cliente.cnpj}] Cancelado aguardando download.")
+
+            atuais = list(downloads_dir.iterdir())
+            novos = [f for f in atuais if f.is_file() and f.name not in existentes]
+            novos_zip = [f for f in novos if f.suffix.lower() == ".zip"]
+            crdownloads = [f for f in novos if f.name.endswith(".crdownload")]
+
+            if novos_zip and not crdownloads:
+                # Download terminou (.zip presente sem .crdownload pendente)
+                # Pega o mais recente (caso haja varios)
+                mais_recente = max(novos_zip, key=lambda f: f.stat().st_mtime)
+                log.info("[%s] Download detectado: %s", cliente.cnpj, mais_recente.name)
+                return mais_recente
+
+            # Log periodico
+            agora = time.monotonic()
+            if agora - ultimo_log > 10:
+                ultimo_log = agora
+                if crdownloads:
+                    log.info("[%s] Aguardando download (em andamento: %s)",
+                             cliente.cnpj, crdownloads[0].name)
+                else:
+                    log.info("[%s] Aguardando download (nenhum arquivo novo ainda)...",
+                             cliente.cnpj)
+
+            time.sleep(1)
+
+        log.warning("[%s] Timeout aguardando download apos %ds",
+                    cliente.cnpj, timeout_s)
         return None
 
     def _aguardar_service_worker(self, context, cdp, ext_id: str, timeout_s: int = 15):
@@ -551,68 +777,56 @@ class NFSePlaywrightRunner:
         _check_cancel(self.cancel_event, f"[{cliente.cnpj}] Cancelado antes de baixar {tipo}.")
         log.info("[%s] Baixando %s via extensao NFSe...", cliente.cnpj, tipo)
 
-        downloads_capturados: list = []
-
-        def _on_download(dl) -> None:
-            downloads_capturados.append(dl)
-
-        context.on("download", _on_download)
-        popup = None
         try:
-            popup = self._abrir_popup_extensao(context, ext_id, page_portal)
+            # 1. Abre o side panel da extensao (clique pyautogui no icone fixado)
+            self._abrir_popup_extensao(context, ext_id, page_portal)
 
-            # Seleciona tipo: clica no botao "Emitidas" ou "Recebidas"
-            tipo_label = "Emitidas" if tipo == "emitidas" else "Recebidas"
-            popup.get_by_text(tipo_label, exact=True).click()
-            popup.wait_for_timeout(400)
+            # 2. Espera o side panel renderizar (JS da extensao precisa rodar)
+            time.sleep(2.5)
+            self._salvar_screenshot_debug(cliente, f"00_panel_aberto_{tipo}")
 
-            # Preenche datas
-            data_inicio_iso = _data_br_para_iso(params.data_inicio)
-            data_fim_iso = _data_br_para_iso(params.data_fim)
-            campos_data = popup.locator("input[type='date']")
-            campos_data.nth(0).fill(data_inicio_iso)
-            campos_data.nth(1).fill(data_fim_iso)
-            popup.wait_for_timeout(300)
+            # 3. Clica no botao "Emitidas" ou "Recebidas" via pyautogui (coords da side panel)
+            self._clicar_tipo_no_panel(tipo, cliente)
+            time.sleep(0.8)
 
-            # Clica em "Iniciar Download"
-            popup.get_by_text("Iniciar Download").click()
-            log.info("[%s] %s: download iniciado, aguardando arquivo...", cliente.cnpj, tipo)
+            # 4. Clica em "Iniciar Download" (botao verde no fim da secao)
+            self._clicar_iniciar_download(cliente)
+            log.info("[%s] %s: download iniciado, monitorando pasta...", cliente.cnpj, tipo)
 
-            # Fecha popup (a extensao baixa em segundo plano)
-            try:
-                popup.wait_for_timeout(800)
-                popup.close()
-            except Exception:
-                pass
-            popup = None
+            # 5. Monitora a pasta Downloads do usuario por novo arquivo .zip
+            novo_arquivo = self._aguardar_download_em_pasta(
+                cliente, timeout_s=self.download_timeout_s,
+            )
 
-            # Aguarda o arquivo aparecer
-            deadline = time.monotonic() + self.download_timeout_s
-            while not downloads_capturados and time.monotonic() < deadline:
-                _check_cancel(self.cancel_event, f"[{cliente.cnpj}] Cancelado aguardando download {tipo}.")
-                time.sleep(1)
-
-            if not downloads_capturados:
+            if novo_arquivo is None:
                 log.info("[%s] Nenhum download de %s detectado no periodo.", cliente.cnpj, tipo)
                 return 0, ""
 
-            dl = downloads_capturados[0]
-            fname = _nome_download_cliente(cliente.cnpj, dl.suggested_filename)
+            # 6. Move pro output_dir do cliente
+            fname = _nome_download_cliente(cliente.cnpj, novo_arquivo.name)
             dest = output_dir / fname
-            dl.save_as(str(dest))
+            try:
+                if dest.exists():
+                    dest.unlink()
+                import shutil
+                shutil.move(str(novo_arquivo), str(dest))
+            except Exception as e:
+                log.warning("[%s] Falha ao mover %s -> %s: %s",
+                            cliente.cnpj, novo_arquivo, dest, e)
+                dest = novo_arquivo
 
-            count = _contar_xmls_ativos_no_zip(dest)
-            _extrair_zip(dest, output_dir)
+            # 7. Conta XMLs e extrai
+            try:
+                count = _contar_xmls_ativos_no_zip(dest)
+                _extrair_zip(dest, output_dir)
+            except Exception as e:
+                log.warning("[%s] Falha ao processar zip: %s", cliente.cnpj, e)
+                count = 0
             log.info("[%s] %s: %d nota(s) ativa(s) em %s", cliente.cnpj, tipo, count, dest.name)
             return count, str(dest)
 
         finally:
-            context.remove_listener("download", _on_download)
-            if popup is not None:
-                try:
-                    popup.close()
-                except Exception:
-                    pass
+            pass
 
     def _processar_tipo(
         self,

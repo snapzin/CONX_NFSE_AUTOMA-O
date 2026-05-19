@@ -288,6 +288,85 @@ async def count_certificados(incluir_lista: bool = False):
         logger.exception("Falha ao contar certificados")
         raise HTTPException(status_code=500, detail=str(e))
 
+def _resolver_xlsx_path() -> Path:
+    """Resolve XLSX_PATH relativo ao diretorio do config.py."""
+    raw = str(getattr(config, "XLSX_PATH", "clientes.xlsx")).strip() or "clientes.xlsx"
+    p = Path(raw)
+    if p.is_absolute():
+        return p
+    config_dir = Path(getattr(config, "__file__", __file__)).parent
+    return config_dir / raw
+
+
+@app.get("/clientes")
+async def listar_clientes():
+    """Le a planilha de clientes (CNPJ/CPF + Nome)."""
+    try:
+        from openpyxl import load_workbook
+        xlsx_path = _resolver_xlsx_path()
+
+        if not xlsx_path.exists():
+            return {"clientes": [], "path": str(xlsx_path)}
+
+        wb = load_workbook(xlsx_path, read_only=True, data_only=True)
+        ws = wb.active
+        rows = list(ws.iter_rows(min_row=1, values_only=True))
+        wb.close()
+
+        if not rows:
+            return {"clientes": [], "path": str(xlsx_path)}
+
+        # Detecta colunas pelo cabecalho
+        header = [str(c or "").strip().lower() for c in rows[0]]
+        idx_doc = next((i for i, h in enumerate(header)
+                        if "cnpj" in h or "cpf" in h or "doc" in h), 0)
+        idx_nome = next((i for i, h in enumerate(header)
+                         if "nome" in h or "razao" in h or "cliente" in h), 1)
+
+        clientes = []
+        for row in rows[1:]:
+            if not row or all(c is None or str(c).strip() == "" for c in row):
+                continue
+            doc = str(row[idx_doc] or "").strip() if idx_doc < len(row) else ""
+            nome = str(row[idx_nome] or "").strip() if idx_nome < len(row) else ""
+            if not doc and not nome:
+                continue
+            clientes.append({"documento": doc, "nome": nome})
+
+        return {"clientes": clientes, "path": str(xlsx_path)}
+    except Exception as e:
+        logger.exception("Falha ao listar clientes")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.post("/clientes")
+async def salvar_clientes(payload: dict):
+    """Grava a lista de clientes na planilha (substitui conteudo)."""
+    try:
+        from openpyxl import Workbook
+        clientes = payload.get("clientes") or []
+        xlsx_path = _resolver_xlsx_path()
+        xlsx_path.parent.mkdir(parents=True, exist_ok=True)
+
+        wb = Workbook()
+        ws = wb.active
+        ws.title = "Clientes"
+        # Cabecalho
+        ws.append(["CNPJ", "NOME"])
+        for c in clientes:
+            doc = str(c.get("documento", "")).strip()
+            nome = str(c.get("nome", "")).strip()
+            if doc or nome:
+                ws.append([doc, nome])
+        wb.save(xlsx_path)
+        wb.close()
+
+        return {"ok": True, "salvos": len(clientes), "path": str(xlsx_path)}
+    except Exception as e:
+        logger.exception("Falha ao salvar clientes")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
 @app.post("/executar")
 async def start_execution(body: dict):
     """Inicia execução assíncrona. Retorna { jobId }."""

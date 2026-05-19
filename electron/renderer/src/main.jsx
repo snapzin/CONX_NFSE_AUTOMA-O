@@ -29,16 +29,77 @@ const api = {
   },
 };
 
+// Senha do modo Desenvolvedor. Para alterar, edite esta linha.
+const DEV_PASSWORD = '190780';
+
+const Icon = {
+  Play: () => (
+    <svg width="16" height="16" viewBox="0 0 16 16" fill="none" xmlns="http://www.w3.org/2000/svg">
+      <path d="M4 2.5L13 8L4 13.5V2.5Z" stroke="currentColor" strokeWidth="1.3" strokeLinejoin="round" />
+    </svg>
+  ),
+  Users: () => (
+    <svg width="16" height="16" viewBox="0 0 16 16" fill="none" xmlns="http://www.w3.org/2000/svg">
+      <circle cx="6" cy="5" r="2.4" stroke="currentColor" strokeWidth="1.3" />
+      <path d="M1.5 14c0-2.49 2.01-4.5 4.5-4.5s4.5 2.01 4.5 4.5" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" />
+      <path d="M10.5 4.2a2.2 2.2 0 1 1 0 4.4" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" />
+      <path d="M11.5 9.8c1.7.4 3 1.9 3 3.7" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" />
+    </svg>
+  ),
+  Settings: () => (
+    <svg width="16" height="16" viewBox="0 0 16 16" fill="none" xmlns="http://www.w3.org/2000/svg">
+      <circle cx="8" cy="8" r="2.2" stroke="currentColor" strokeWidth="1.3" />
+      <path d="M8 1.5v1.8M8 12.7v1.8M14.5 8h-1.8M3.3 8H1.5M12.6 3.4l-1.3 1.3M4.7 11.3l-1.3 1.3M12.6 12.6l-1.3-1.3M4.7 4.7L3.4 3.4" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" />
+    </svg>
+  ),
+  Info: () => (
+    <svg width="16" height="16" viewBox="0 0 16 16" fill="none" xmlns="http://www.w3.org/2000/svg">
+      <circle cx="8" cy="8" r="6.5" stroke="currentColor" strokeWidth="1.3" />
+      <path d="M8 7v4M8 5v.4" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" />
+    </svg>
+  ),
+  Lock: () => (
+    <svg width="16" height="16" viewBox="0 0 16 16" fill="none" xmlns="http://www.w3.org/2000/svg">
+      <rect x="3" y="7" width="10" height="7" rx="1" stroke="currentColor" strokeWidth="1.3" />
+      <path d="M5 7V5a3 3 0 0 1 6 0v2" stroke="currentColor" strokeWidth="1.3" />
+    </svg>
+  ),
+  Code: () => (
+    <svg width="16" height="16" viewBox="0 0 16 16" fill="none" xmlns="http://www.w3.org/2000/svg">
+      <path d="M5 4L1.5 8L5 12M11 4l3.5 4L11 12M9.5 3l-3 10" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" strokeLinejoin="round" />
+    </svg>
+  ),
+  Check: () => (
+    <svg width="14" height="14" viewBox="0 0 16 16" fill="none" xmlns="http://www.w3.org/2000/svg">
+      <path d="M3 8.5L6.5 12L13 4.5" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" />
+    </svg>
+  ),
+  Cross: () => (
+    <svg width="14" height="14" viewBox="0 0 16 16" fill="none" xmlns="http://www.w3.org/2000/svg">
+      <path d="M4 4l8 8M12 4l-8 8" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" />
+    </svg>
+  ),
+  Spinner: () => (
+    <svg width="14" height="14" viewBox="0 0 16 16" fill="none" xmlns="http://www.w3.org/2000/svg" className="spin">
+      <path d="M8 1.5a6.5 6.5 0 1 1-6.5 6.5" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" />
+    </svg>
+  ),
+};
+
 const navItems = [
-  { id: 'executar', label: 'Executar', icon: '>' },
-  { id: 'config', label: 'Configuracoes', icon: '*' },
-  { id: 'sobre', label: 'Sobre', icon: 'i' },
+  { id: 'executar', label: 'Executar', icon: <Icon.Play /> },
+  { id: 'clientes', label: 'Clientes', icon: <Icon.Users /> },
+  { id: 'config', label: 'Configurações', icon: <Icon.Settings /> },
+  { id: 'sobre', label: 'Sobre', icon: <Icon.Info /> },
+  { id: 'dev', label: 'Desenvolvedor', icon: <Icon.Code />, requiresAuth: true },
 ];
 
 const titles = {
   executar: 'Executar',
+  clientes: 'Clientes',
   config: 'Configuracoes',
   sobre: 'Sobre',
+  dev: 'Desenvolvedor',
 };
 
 function useToasts() {
@@ -58,15 +119,44 @@ function useToasts() {
 function App() {
   const [page, setPage] = useState('executar');
   const [status, setStatus] = useState('Pronto');
+  const [devUnlocked, setDevUnlocked] = useState(false);
+  const [showPwdModal, setShowPwdModal] = useState(false);
+  const [sharedJobLogs, setSharedJobLogs] = useState([]);
+  const [sharedJobStatus, setSharedJobStatus] = useState('Pronto');
   const { toasts, push } = useToasts();
 
   useEffect(() => {
     document.documentElement.dataset.theme = 'dark';
   }, []);
 
+  const tryGoToPage = (targetPage) => {
+    const navItem = navItems.find((n) => n.id === targetPage);
+    if (navItem?.requiresAuth && !devUnlocked) {
+      setShowPwdModal(true);
+      return;
+    }
+    setPage(targetPage);
+  };
+
+  const handlePwdSubmit = (pwd) => {
+    if (pwd === DEV_PASSWORD) {
+      setDevUnlocked(true);
+      setShowPwdModal(false);
+      setPage('dev');
+      push('Modo desenvolvedor desbloqueado.', 'success');
+    } else {
+      push('Senha incorreta.', 'error');
+    }
+  };
+
   return (
     <div className="app-shell">
-      <Sidebar page={page} setPage={setPage} />
+      <Sidebar
+        page={page}
+        setPage={tryGoToPage}
+        devUnlocked={devUnlocked}
+        onLockDev={() => { setDevUnlocked(false); setPage('executar'); push('Modo dev bloqueado.', 'info'); }}
+      />
       <main className="main-area">
         <header className="topbar">
           <h1>{titles[page]}</h1>
@@ -87,10 +177,25 @@ function App() {
               transition={{ duration: 0.2, ease: [0.16, 1, 0.3, 1] }}
             >
               {page === 'executar' && (
-                <ExecutarPage api={api} toast={push} setStatus={setStatus} />
+                <ExecutarPage
+                  api={api}
+                  toast={push}
+                  setStatus={setStatus}
+                  onLogsUpdate={setSharedJobLogs}
+                  onJobStatusUpdate={setSharedJobStatus}
+                />
               )}
+              {page === 'clientes' && <ClientesPage api={api} toast={push} />}
               {page === 'config' && <ConfigPage api={api} toast={push} />}
               {page === 'sobre' && <SobrePage />}
+              {page === 'dev' && devUnlocked && (
+                <DeveloperPage
+                  api={api}
+                  toast={push}
+                  logs={sharedJobLogs}
+                  jobStatus={sharedJobStatus}
+                />
+              )}
             </motion.div>
           </AnimatePresence>
         </section>
@@ -98,46 +203,153 @@ function App() {
         <footer className="statusbar">{status === 'Pronto' ? 'Pronto para executar.' : status}</footer>
       </main>
       <ToastViewport toasts={toasts} />
+      {showPwdModal && (
+        <PasswordModal
+          onSubmit={handlePwdSubmit}
+          onCancel={() => setShowPwdModal(false)}
+        />
+      )}
     </div>
   );
 }
 
-function Sidebar({ page, setPage }) {
+function PasswordModal({ onSubmit, onCancel }) {
+  const [pwd, setPwd] = useState('');
+  const inputRef = useRef(null);
+
+  useEffect(() => {
+    inputRef.current?.focus();
+  }, []);
+
+  const submit = (e) => {
+    e?.preventDefault?.();
+    onSubmit(pwd);
+  };
+
+  return (
+    <div className="modal-backdrop" onClick={onCancel}>
+      <form className="modal-box" onClick={(e) => e.stopPropagation()} onSubmit={submit}>
+        <div className="modal-icon"><Icon.Lock /></div>
+        <h3>Acesso restrito</h3>
+        <p>Digite a senha de desenvolvedor para visualizar logs técnicos.</p>
+        <input
+          ref={inputRef}
+          type="password"
+          value={pwd}
+          onChange={(e) => setPwd(e.target.value)}
+          placeholder="••••••"
+          className="modal-input"
+        />
+        <div className="modal-actions">
+          <button type="button" className="btn-secondary" onClick={onCancel}>Cancelar</button>
+          <button type="submit" className="btn-primary">Entrar</button>
+        </div>
+      </form>
+    </div>
+  );
+}
+
+function Sidebar({ page, setPage, devUnlocked, onLockDev }) {
   return (
     <aside className="sidebar">
       <div className="sidebar-header">
-        <div className="logo">NFSe</div>
-        <div className="version">Automacao - v2.3</div>
+        <img src="./conx-logo.png" alt="CONX" className="logo-img" />
       </div>
       <nav className="sidebar-nav">
-        {navItems.map((item) => (
-          <button
-            key={item.id}
-            className={`nav-btn ${page === item.id ? 'active' : ''}`}
-            type="button"
-            onClick={() => setPage(item.id)}
-            title={item.label}
-          >
-            <span className="nav-icon">{item.icon}</span>
-            <span className="nav-label">{item.label}</span>
-          </button>
-        ))}
+        {navItems.map((item) => {
+          const isLocked = item.requiresAuth && !devUnlocked;
+          return (
+            <button
+              key={item.id}
+              className={`nav-btn ${page === item.id ? 'active' : ''} ${isLocked ? 'nav-btn-locked' : ''}`}
+              type="button"
+              onClick={() => setPage(item.id)}
+              title={isLocked ? `${item.label} (requer senha)` : item.label}
+            >
+              <span className="nav-icon">{item.icon}</span>
+              <span className="nav-label">{item.label}</span>
+              {isLocked && <span className="nav-lock"><Icon.Lock /></span>}
+              {item.requiresAuth && devUnlocked && (
+                <span
+                  className="nav-unlock-action"
+                  onClick={(e) => { e.stopPropagation(); onLockDev?.(); }}
+                  title="Bloquear modo dev"
+                >×</span>
+              )}
+            </button>
+          );
+        })}
       </nav>
+      <div className="sidebar-footer-brand">
+        Automação NFSe<br />v2.3
+      </div>
     </aside>
   );
 }
 
-function ExecutarPage({ api, toast, setStatus }) {
+function parseProgress(logs) {
+  let total = 0;
+  const clients = [];
+
+  for (const log of logs || []) {
+    const msg = String(log.message || '');
+
+    const totalM = msg.match(/CNPJs alvo:\s*(\d+)/);
+    if (totalM) total = Math.max(total, parseInt(totalM[1], 10));
+
+    const clientM = msg.match(/\[(\d+)\/(\d+)\]\s+Cliente XLSX:\s+'([^']*)'\s+\(CNPJ\s+(\d+)/);
+    if (clientM) {
+      // Marca anterior como ok se ainda estava 'running'
+      if (clients.length > 0 && clients[clients.length - 1].status === 'running') {
+        clients[clients.length - 1].status = 'ok';
+      }
+      const idx = parseInt(clientM[1], 10);
+      const tot = parseInt(clientM[2], 10);
+      total = Math.max(total, tot);
+      clients.push({
+        idx,
+        cnpj: clientM[4],
+        nome: clientM[3] || clientM[4],
+        status: 'running',
+        message: '',
+      });
+      continue;
+    }
+
+    if (String(log.level || '').toUpperCase() === 'ERROR' && clients.length > 0) {
+      const last = clients[clients.length - 1];
+      last.status = 'error';
+      let errMsg = msg.replace(/\[[^\]]+\]\s*Falha\s+na\s+automacao\s+local:\s*/i, '');
+      errMsg = errMsg.split('\n')[0].slice(0, 240);
+      last.message = errMsg;
+    }
+  }
+
+  return { total, clients };
+}
+
+function ExecutarPage({ api, toast, setStatus, onLogsUpdate, onJobStatusUpdate }) {
   const [usePrevMonth, setUsePrevMonth] = useState(true);
   const [jobId, setJobId] = useState(null);
   const [jobStatus, setJobStatus] = useState('Pronto');
   const [logs, setLogs] = useState([]);
   const [busy, setBusy] = useState(false);
-  const logsRef = useRef(null);
 
-  useEffect(() => {
-    logsRef.current?.scrollTo({ top: logsRef.current.scrollHeight });
-  }, [logs]);
+  // Datas padrao = primeiro/ultimo dia do mes anterior (formato ISO yyyy-mm-dd)
+  const calcMesAnterior = () => {
+    const hoje = new Date();
+    const fimAnt = new Date(hoje.getFullYear(), hoje.getMonth(), 0);
+    const inicioAnt = new Date(fimAnt.getFullYear(), fimAnt.getMonth(), 1);
+    const fmt = (d) => d.toISOString().slice(0, 10);
+    return { inicio: fmt(inicioAnt), fim: fmt(fimAnt) };
+  };
+  const [{ inicio: defaultInicio, fim: defaultFim }] = useState(calcMesAnterior);
+  const [dataInicio, setDataInicio] = useState(defaultInicio);
+  const [dataFim, setDataFim] = useState(defaultFim);
+
+  // Compartilha logs/status com a tela Desenvolvedor
+  useEffect(() => { onLogsUpdate?.(logs); }, [logs, onLogsUpdate]);
+  useEffect(() => { onJobStatusUpdate?.(jobStatus); }, [jobStatus, onJobStatusUpdate]);
 
   useEffect(() => {
     if (!jobId) return undefined;
@@ -174,15 +386,32 @@ function ExecutarPage({ api, toast, setStatus }) {
     };
   }, [api, jobId, setStatus, toast]);
 
+  // ISO yyyy-mm-dd -> BR dd/mm/yyyy (formato esperado pelo backend)
+  const isoToBr = (iso) => {
+    if (!iso) return null;
+    const [y, m, d] = iso.split('-');
+    return `${d}/${m}/${y}`;
+  };
+
   const execute = async () => {
+    if (!usePrevMonth) {
+      if (!dataInicio || !dataFim) {
+        toast('Informe data inicial e final.', 'warning');
+        return;
+      }
+      if (dataInicio > dataFim) {
+        toast('Data inicial deve ser menor ou igual a data final.', 'warning');
+        return;
+      }
+    }
     try {
       setBusy(true);
       setLogs([]);
       setJobStatus('Executando');
       setStatus('Executando automacao');
       const result = await api.post('/executar', {
-        dataInicio: usePrevMonth ? null : null,
-        dataFim: usePrevMonth ? null : null,
+        dataInicio: usePrevMonth ? null : isoToBr(dataInicio),
+        dataFim: usePrevMonth ? null : isoToBr(dataFim),
         cnpjs: null,
       });
       setJobId(result.jobId);
@@ -204,11 +433,29 @@ function ExecutarPage({ api, toast, setStatus }) {
     }
   };
 
+  const isoToBrShort = (iso) => {
+    if (!iso) return '-';
+    const [y, m, d] = iso.split('-');
+    return `${d}/${m}/${y.slice(2)}`;
+  };
+  const periodoStat = usePrevMonth
+    ? 'Mês anterior'
+    : (dataInicio && dataFim ? `${isoToBrShort(dataInicio)} → ${isoToBrShort(dataFim)}` : 'Manual');
+
+  const progress = parseProgress(logs);
+  const okCount = progress.clients.filter((c) => c.status === 'ok').length;
+  const errCount = progress.clients.filter((c) => c.status === 'error').length;
+  const runningCount = progress.clients.filter((c) => c.status === 'running').length;
+  const processed = okCount + errCount;
+  const totalEsperado = Math.max(progress.total, progress.clients.length);
+  const pct = totalEsperado > 0 ? Math.round((processed / totalEsperado) * 100) : 0;
+  const currentClient = progress.clients.find((c) => c.status === 'running');
+
   const stats = [
     ['Status', jobStatus],
-    ['Periodo', usePrevMonth ? 'Mes anterior' : 'Manual'],
-    ['CNPJs', 'Todos'],
-    ['Ultimo', '-'],
+    ['Período', periodoStat],
+    ['Progresso', totalEsperado > 0 ? `${processed} / ${totalEsperado}` : '—'],
+    ['Erros', String(errCount)],
   ];
 
   return (
@@ -236,8 +483,32 @@ function ExecutarPage({ api, toast, setStatus }) {
             checked={usePrevMonth}
             onChange={(event) => setUsePrevMonth(event.target.checked)}
           />
-          Usar mes anterior automaticamente
+          Usar mês anterior automaticamente
         </label>
+
+        {!usePrevMonth && (
+          <div className="date-range">
+            <div className="date-field">
+              <span>Data inicial</span>
+              <input
+                type="date"
+                value={dataInicio}
+                onChange={(e) => setDataInicio(e.target.value)}
+                max={dataFim || undefined}
+              />
+            </div>
+            <div className="date-field">
+              <span>Data final</span>
+              <input
+                type="date"
+                value={dataFim}
+                onChange={(e) => setDataFim(e.target.value)}
+                min={dataInicio || undefined}
+              />
+            </div>
+          </div>
+        )}
+
         <div className="form-actions">
           <button className="btn-primary" type="button" onClick={execute} disabled={busy}>
             Executar agora
@@ -250,17 +521,62 @@ function ExecutarPage({ api, toast, setStatus }) {
         </div>
       </div>
 
-      <div className="logs-box">
-        <h3>Logs de execucao</h3>
-        <div id="logs-panel" ref={logsRef}>
-          {logs.length === 0 && <div className="log-muted">Aguardando execucao...</div>}
-          {logs.map((log, index) => (
-            <div className={`log-line log-${String(log.level).toLowerCase()}`} key={`${log.timestamp}-${index}`}>
-              {log.message}
+      {totalEsperado > 0 && (
+        <div className="progress-box">
+          <div className="progress-header">
+            <div className="progress-title">
+              {busy && runningCount > 0
+                ? `Processando ${processed + 1} de ${totalEsperado}`
+                : busy
+                  ? 'Iniciando...'
+                  : `${processed} de ${totalEsperado} processado(s)`}
             </div>
-          ))}
+            <div className="progress-pct">{pct}%</div>
+          </div>
+          <div className="progress-bar">
+            <div className="progress-bar-fill" style={{ width: `${pct}%` }} />
+          </div>
+
+          {currentClient && (
+            <div className="progress-current">
+              <Icon.Spinner />
+              <span>{currentClient.nome}</span>
+              <span className="progress-current-cnpj">CNPJ {currentClient.cnpj}</span>
+            </div>
+          )}
+
+          {progress.clients.length > 0 && (
+            <div className="progress-list">
+              {progress.clients.map((c) => (
+                <div className={`progress-item progress-${c.status}`} key={`${c.idx}-${c.cnpj}`}>
+                  <span className="progress-item-icon">
+                    {c.status === 'ok' && <Icon.Check />}
+                    {c.status === 'error' && <Icon.Cross />}
+                    {c.status === 'running' && <Icon.Spinner />}
+                  </span>
+                  <span className="progress-item-nome">{c.nome}</span>
+                  {c.status === 'error' && c.message && (
+                    <span className="progress-item-msg" title={c.message}>{c.message}</span>
+                  )}
+                </div>
+              ))}
+            </div>
+          )}
+
+          {!busy && processed > 0 && (
+            <div className="progress-summary">
+              <span><Icon.Check /> {okCount} concluído(s)</span>
+              {errCount > 0 && <span className="err"><Icon.Cross /> {errCount} com erro</span>}
+            </div>
+          )}
         </div>
-      </div>
+      )}
+
+      {totalEsperado === 0 && !busy && (
+        <div className="empty-progress">
+          <p>Clique em <strong>Executar agora</strong> para iniciar o download das notas.</p>
+        </div>
+      )}
     </div>
   );
 }
@@ -390,6 +706,292 @@ function ToastViewport({ toasts }) {
           </motion.div>
         ))}
       </AnimatePresence>
+    </div>
+  );
+}
+
+function ClientesPage({ api, toast }) {
+  const [clientes, setClientes] = useState([]);
+  const [loading, setLoading] = useState(false);
+  const [saving, setSaving] = useState(false);
+  const [filtro, setFiltro] = useState('');
+  const [pathInfo, setPathInfo] = useState('');
+
+  const carregar = useCallback(async () => {
+    setLoading(true);
+    try {
+      const res = await api.get('/clientes');
+      setClientes((res?.clientes || []).map((c) => ({ ...c })));
+      setPathInfo(res?.path || '');
+    } catch (err) {
+      toast(`Falha ao carregar clientes: ${err?.message || err}`, 'error');
+    } finally {
+      setLoading(false);
+    }
+  }, [api, toast]);
+
+  useEffect(() => {
+    carregar();
+  }, [carregar]);
+
+  const formatarDoc = (raw) => {
+    const d = String(raw || '').replace(/\D/g, '');
+    if (d.length === 11) {
+      return d.replace(/(\d{3})(\d{3})(\d{3})(\d{2})/, '$1.$2.$3-$4');
+    }
+    if (d.length === 14) {
+      return d.replace(/(\d{2})(\d{3})(\d{3})(\d{4})(\d{2})/, '$1.$2.$3/$4-$5');
+    }
+    return raw;
+  };
+
+  const adicionar = () => {
+    setClientes((cs) => [...cs, { documento: '', nome: '' }]);
+  };
+
+  const remover = (idx) => {
+    setClientes((cs) => cs.filter((_, i) => i !== idx));
+  };
+
+  const editar = (idx, campo, valor) => {
+    setClientes((cs) => cs.map((c, i) => (i === idx ? { ...c, [campo]: valor } : c)));
+  };
+
+  const salvar = async () => {
+    setSaving(true);
+    try {
+      const payload = {
+        clientes: clientes
+          .map((c) => ({
+            documento: String(c.documento || '').replace(/\D/g, ''),
+            nome: String(c.nome || '').trim(),
+          }))
+          .filter((c) => c.documento || c.nome),
+      };
+      const res = await api.post('/clientes', payload);
+      toast(`${res?.salvos ?? payload.clientes.length} cliente(s) salvo(s).`, 'success');
+    } catch (err) {
+      toast(`Falha ao salvar: ${err?.message || err}`, 'error');
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const filtrados = clientes
+    .map((c, idx) => ({ ...c, _idx: idx }))
+    .filter((c) => {
+      if (!filtro) return true;
+      const f = filtro.toLowerCase();
+      const doc = String(c.documento || '').replace(/\D/g, '');
+      return doc.includes(f.replace(/\D/g, '')) ||
+             String(c.nome || '').toLowerCase().includes(f);
+    });
+
+  return (
+    <div className="page-inner">
+      <div className="clientes-toolbar">
+        <input
+          type="text"
+          placeholder="Filtrar por CNPJ/CPF ou nome..."
+          value={filtro}
+          onChange={(e) => setFiltro(e.target.value)}
+          className="clientes-filter"
+        />
+        <div className="clientes-actions">
+          <button type="button" className="btn-secondary" onClick={carregar} disabled={loading}>
+            Recarregar
+          </button>
+          <button type="button" className="btn-secondary" onClick={adicionar}>
+            + Adicionar
+          </button>
+          <button type="button" className="btn-primary" onClick={salvar} disabled={saving}>
+            {saving ? 'Salvando...' : 'Salvar'}
+          </button>
+        </div>
+      </div>
+
+      {pathInfo && (
+        <div className="clientes-path">Arquivo: {pathInfo}</div>
+      )}
+
+      <div className="clientes-table-wrap">
+        <table className="clientes-table">
+          <thead>
+            <tr>
+              <th style={{ width: '40px' }}>#</th>
+              <th style={{ width: '180px' }}>CNPJ / CPF</th>
+              <th>Nome do Cliente</th>
+              <th style={{ width: '60px' }}></th>
+            </tr>
+          </thead>
+          <tbody>
+            {loading && (
+              <tr><td colSpan="4" className="clientes-empty">Carregando...</td></tr>
+            )}
+            {!loading && filtrados.length === 0 && (
+              <tr>
+                <td colSpan="4" className="clientes-empty">
+                  {clientes.length === 0
+                    ? 'Nenhum cliente cadastrado. Clique em "+ Adicionar".'
+                    : 'Nenhum resultado para o filtro.'}
+                </td>
+              </tr>
+            )}
+            {!loading && filtrados.map((c) => (
+              <tr key={c._idx}>
+                <td className="clientes-idx">{c._idx + 1}</td>
+                <td>
+                  <input
+                    type="text"
+                    value={c.documento || ''}
+                    placeholder="00.000.000/0000-00"
+                    onChange={(e) => editar(c._idx, 'documento', e.target.value)}
+                    onBlur={(e) => editar(c._idx, 'documento', formatarDoc(e.target.value))}
+                  />
+                </td>
+                <td>
+                  <input
+                    type="text"
+                    value={c.nome || ''}
+                    placeholder="Nome / Razão social"
+                    onChange={(e) => editar(c._idx, 'nome', e.target.value)}
+                  />
+                </td>
+                <td>
+                  <button
+                    type="button"
+                    className="btn-row-remove"
+                    onClick={() => remover(c._idx)}
+                    title="Remover"
+                  >×</button>
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+
+      <div className="clientes-count">
+        Total: {clientes.length} cliente(s)
+      </div>
+    </div>
+  );
+}
+
+function DeveloperPage({ api, toast, logs, jobStatus }) {
+  const [filter, setFilter] = useState('');
+  const [level, setLevel] = useState('all');
+  const [autoScroll, setAutoScroll] = useState(true);
+  const [systemInfo, setSystemInfo] = useState(null);
+  const logsRef = useRef(null);
+
+  const fetchInfo = useCallback(async () => {
+    try {
+      const cfg = await api.get('/config');
+      const certs = await api.get('/certificados').catch(() => null);
+      setSystemInfo({ cfg, certs });
+    } catch (e) {
+      // silencioso
+    }
+  }, [api]);
+
+  useEffect(() => { fetchInfo(); }, [fetchInfo]);
+
+  useEffect(() => {
+    if (autoScroll && logsRef.current) {
+      logsRef.current.scrollTop = logsRef.current.scrollHeight;
+    }
+  }, [logs, autoScroll]);
+
+  const filtered = (logs || []).filter((log) => {
+    if (level !== 'all' && String(log.level || '').toUpperCase() !== level.toUpperCase()) {
+      return false;
+    }
+    if (filter && !String(log.message || '').toLowerCase().includes(filter.toLowerCase())) {
+      return false;
+    }
+    return true;
+  });
+
+  const copyLogs = () => {
+    const text = filtered
+      .map((l) => `[${l.level}] ${l.message}`)
+      .join('\n');
+    if (navigator.clipboard && text) {
+      navigator.clipboard.writeText(text);
+      toast('Logs copiados.', 'success');
+    }
+  };
+
+  return (
+    <div className="page-inner">
+      <div className="dev-info-box">
+        <h3>Informações do sistema</h3>
+        {systemInfo ? (
+          <div className="dev-info-grid">
+            <div className="info-row"><span className="label">XLSX Path</span><span className="value">{systemInfo.cfg?.values?.XLSX_PATH || '—'}</span></div>
+            <div className="info-row"><span className="label">Pasta certificados</span><span className="value">{systemInfo.cfg?.values?.PASTA_CERTS || '—'}</span></div>
+            <div className="info-row"><span className="label">Pasta saída</span><span className="value">{systemInfo.cfg?.values?.PASTA_SAIDA || '—'}</span></div>
+            <div className="info-row"><span className="label">Chrome User Data</span><span className="value">{systemInfo.cfg?.values?.CHROME_USER_DATA_DIR || '—'}</span></div>
+            <div className="info-row"><span className="label">Extension ID</span><span className="value">{systemInfo.cfg?.values?.CHROME_EXTENSION_ID || '—'}</span></div>
+            <div className="info-row"><span className="label">Status job atual</span><span className="value">{jobStatus || 'Pronto'}</span></div>
+            {systemInfo.certs && (
+              <>
+                <div className="info-row"><span className="label">Certificados (total)</span><span className="value">{systemInfo.certs.total}</span></div>
+                <div className="info-row"><span className="label">Válidos</span><span className="value">{systemInfo.certs.validos}</span></div>
+                <div className="info-row"><span className="label">CNPJs únicos</span><span className="value">{systemInfo.certs.cnpjsUnicos}</span></div>
+                <div className="info-row"><span className="label">CNPJs duplicados</span><span className="value">{systemInfo.certs.cnpjsDuplicados}</span></div>
+              </>
+            )}
+          </div>
+        ) : (
+          <p style={{ color: 'var(--text-2)', fontSize: 12 }}>Carregando...</p>
+        )}
+        <div className="form-actions" style={{ marginTop: 14 }}>
+          <button className="btn-secondary" type="button" onClick={fetchInfo}>Atualizar</button>
+        </div>
+      </div>
+
+      <div className="logs-box dev-logs-box">
+        <h3>Logs técnicos</h3>
+        <div className="dev-logs-toolbar">
+          <input
+            type="text"
+            placeholder="Filtrar mensagem..."
+            value={filter}
+            onChange={(e) => setFilter(e.target.value)}
+            className="dev-logs-filter"
+          />
+          <select
+            value={level}
+            onChange={(e) => setLevel(e.target.value)}
+            className="dev-logs-level"
+          >
+            <option value="all">Todos</option>
+            <option value="INFO">INFO</option>
+            <option value="WARNING">WARNING</option>
+            <option value="ERROR">ERROR</option>
+            <option value="CRITICAL">CRITICAL</option>
+          </select>
+          <label className="dev-logs-check">
+            <input
+              type="checkbox"
+              checked={autoScroll}
+              onChange={(e) => setAutoScroll(e.target.checked)}
+            />
+            Auto-rolar
+          </label>
+          <button type="button" className="btn-secondary" onClick={copyLogs}>Copiar</button>
+        </div>
+        <div id="logs-panel" ref={logsRef}>
+          {filtered.length === 0 && <div className="log-muted">Nenhum log para exibir.</div>}
+          {filtered.map((log, index) => (
+            <div className={`log-line log-${String(log.level).toLowerCase()}`} key={`${log.timestamp}-${index}`}>
+              <span className="log-level">[{log.level}]</span> {log.message}
+            </div>
+          ))}
+        </div>
+      </div>
     </div>
   );
 }

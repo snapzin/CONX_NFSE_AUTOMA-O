@@ -1,4 +1,4 @@
-const { app, BrowserWindow, ipcMain } = require('electron');
+const { app, BrowserWindow, ipcMain, Menu } = require('electron');
 const { spawn } = require('child_process');
 const path = require('path');
 const fs = require('fs');
@@ -172,15 +172,18 @@ ipcMain.handle('api-call', async (event, method, endpoint, body) => {
 // ============================================================================
 app.on('ready', async () => {
   try {
+    // Remove o menu padrao (File, Edit, View, Window, Help)
+    Menu.setApplicationMenu(null);
+
     // Splash screen (janela pequena enquanto carrega)
     const splashWindow = new BrowserWindow({
-      width: 560,
-      height: 340,
+      width: 480,
+      height: 360,
       frame: false,
       resizable: false,
       center: true,
       alwaysOnTop: true,
-      backgroundColor: '#05080f',
+      backgroundColor: '#000000',
       show: false,
       webPreferences: {
         nodeIntegration: false,

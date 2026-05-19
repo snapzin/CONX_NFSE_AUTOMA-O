@@ -3,55 +3,92 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>NFSe Automacao</title>
+    <title>CONX</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500&display=swap"
+      rel="stylesheet"
+    />
     <style>
       * {
         box-sizing: border-box;
+        margin: 0;
+        padding: 0;
       }
 
       html,
       body {
         width: 100%;
         height: 100%;
-        margin: 0;
         overflow: hidden;
-        background: #05080f;
+        background: #000000;
+        font-family: "Inter", -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+        color: #ffffff;
       }
 
       body {
-        display: grid;
-        place-items: center;
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        justify-content: center;
         -webkit-app-region: drag;
+        animation: fadeIn 320ms ease-out both;
       }
 
-      .splash-video {
-        width: 100vw;
-        height: 100vh;
-        object-fit: contain;
-        background: #05080f;
-        animation: fadeIn 260ms ease-out both;
+      .logo {
+        width: 220px;
+        max-width: 60vw;
+        height: auto;
+        margin-bottom: 28px;
+        display: block;
+        user-select: none;
         pointer-events: none;
       }
 
-      @keyframes fadeIn {
-        from {
-          opacity: 0;
-        }
+      .tag {
+        font-size: 11px;
+        letter-spacing: 0.32em;
+        color: #888888;
+        text-transform: uppercase;
+        border-top: 1px solid #1f1f1f;
+        padding-top: 14px;
+        text-align: center;
+        min-width: 180px;
+      }
 
-        to {
-          opacity: 1;
-        }
+      .loader {
+        margin-top: 40px;
+        width: 160px;
+        height: 1px;
+        background: #1f1f1f;
+        overflow: hidden;
+        position: relative;
+      }
+
+      .loader::after {
+        content: "";
+        position: absolute;
+        inset: 0;
+        background: #ffffff;
+        animation: slide 1.6s ease-in-out infinite;
+      }
+
+      @keyframes slide {
+        0% { transform: translateX(-100%); }
+        100% { transform: translateX(100%); }
+      }
+
+      @keyframes fadeIn {
+        from { opacity: 0; }
+        to { opacity: 1; }
       }
     </style>
   </head>
   <body>
-    <video
-      class="splash-video"
-      src="./assets/automacoes_loading.mp4"
-      autoplay
-      muted
-      loop
-      playsinline
-    ></video>
+    <img class="logo" src="./renderer-dist/conx-logo.png" alt="CONX"
+      onerror="this.onerror=null; this.src='./renderer/public/conx-logo.png'; this.addEventListener('error', () => this.style.display='none');" />
+    <div class="tag">SIMPLES NACIONAL</div>
+    <div class="loader"></div>
   </body>
 </html>
