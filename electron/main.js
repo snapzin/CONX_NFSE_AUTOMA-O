@@ -13,21 +13,22 @@ const API_URL = `http://127.0.0.1:${API_PORT}`;
 const isProd = app.isPackaged;
 const DEV_RENDERER_URL = process.env.VITE_DEV_SERVER_URL || 'http://127.0.0.1:5173';
 
-// Caminho para o executável Python
+// Caminho para o Python (apenas em desenvolvimento)
 const getPythonPath = () => {
-  if (isProd) {
-    // Em produção, Python está empacotado
-    return path.join(process.resourcesPath, 'python-embed', 'python.exe');
+  if (process.env.NFSE_PYTHON_PATH) {
+    return process.env.NFSE_PYTHON_PATH;
   }
-  // Em desenvolvimento, usa python do PATH
-  return process.platform === 'win32' ? 'python' : 'python3';
-};
 
-const getServerScriptPath = () => {
-  return path.join(
-    isProd ? process.resourcesPath : __dirname,
-    '..', 'api', 'server.py'
-  );
+  const projectRoot = path.join(__dirname, '..');
+  const venvPython = process.platform === 'win32'
+    ? path.join(projectRoot, '.venv', 'Scripts', 'python.exe')
+    : path.join(projectRoot, '.venv', 'bin', 'python');
+
+  if (fs.existsSync(venvPython)) {
+    return venvPython;
+  }
+
+  return process.platform === 'win32' ? 'python' : 'python3';
 };
 
 // ============================================================================
@@ -35,15 +36,31 @@ const getServerScriptPath = () => {
 // ============================================================================
 const startPythonBackend = () => {
   return new Promise((resolve, reject) => {
-    const pythonPath = getPythonPath();
-    const scriptPath = getServerScriptPath();
+    let command, args, cwd;
 
-    console.log(`[Main] Iniciando Python: ${pythonPath}`);
-    console.log(`[Main] Script: ${scriptPath}`);
+    if (isProd) {
+      // Produção: server.exe standalone (PyInstaller) em resources/backend/
+      command = path.join(process.resourcesPath, 'backend', 'server.exe');
+      args = [];
+      cwd = path.join(process.resourcesPath, 'backend');
+    } else {
+      // Desenvolvimento: python + script
+      command = getPythonPath();
+      args = [path.join(__dirname, '..', 'api', 'server.py')];
+      cwd = path.join(__dirname, '..');
+    }
 
-    pythonProcess = spawn(pythonPath, [scriptPath], {
+    console.log(`[Main] Iniciando backend: ${command}`);
+
+    pythonProcess = spawn(command, args, {
       stdio: ['ignore', 'pipe', 'pipe'],
       detached: false,
+      cwd,
+      env: {
+        ...process.env,
+        PYTHONIOENCODING: 'utf-8',
+        PYTHONUTF8: '1',
+      },
     });
 
     // Log do stdout/stderr do Python
@@ -115,10 +132,7 @@ const createWindow = () => {
     });
   }
 
-  // DevTools em desenvolvimento
-  if (!isProd) {
-    mainWindow.webContents.openDevTools();
-  }
+  // DevTools desativado por padrao — abra manualmente com Ctrl+Shift+I se precisar
 
   mainWindow.on('closed', () => {
     mainWindow = null;
@@ -160,11 +174,25 @@ app.on('ready', async () => {
   try {
     // Splash screen (janela pequena enquanto carrega)
     const splashWindow = new BrowserWindow({
-      width: 480,
-      height: 320,
+      width: 560,
+      height: 340,
       frame: false,
+      resizable: false,
+      center: true,
       alwaysOnTop: true,
-      webPreferences: { nodeIntegration: false },
+      backgroundColor: '#05080f',
+      show: false,
+      webPreferences: {
+        nodeIntegration: false,
+        contextIsolation: true,
+        sandbox: true,
+      },
+    });
+
+    splashWindow.once('ready-to-show', () => {
+      if (!splashWindow.isDestroyed()) {
+        splashWindow.show();
+      }
     });
 
     const splashPath = path.join(__dirname, 'splash.html');
@@ -179,7 +207,9 @@ app.on('ready', async () => {
     await startPythonBackend();
 
     // Fecha splash e abre main
-    splashWindow.close();
+    if (!splashWindow.isDestroyed()) {
+      splashWindow.close();
+    }
     createWindow();
   } catch (error) {
     console.error('[Main] Erro fatal:', error);

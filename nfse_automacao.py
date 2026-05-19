@@ -12,12 +12,16 @@ Fluxo:
 
 from __future__ import annotations
 
+import html as _html
 import json
 import logging
+import os
 import re
 import smtplib
+import tempfile
 import threading
 import time
+import zipfile
 from calendar import monthrange
 from dataclasses import dataclass, field
 from datetime import date, datetime
@@ -83,6 +87,99 @@ class Cliente:
     nome: str
 
 
+_CHROME_POLICY_KEY = r"SOFTWARE\Policies\Google\Chrome\AutoSelectCertificateForUrls"
+# Nomes numericos sao OBRIGATORIOS — Chrome ignora entradas com nomes nao-numericos.
+# Usamos faixa alta para nao colidir com entradas existentes (GPO, etc).
+_CHROME_POLICY_NAMES = ("9990", "9991", "9992")
+
+
+def _set_chrome_autoselect_policy(cn: str, url_pattern: str) -> bool:
+    """
+    Escreve AutoSelectCertificateForUrls em HKCU para que o Chrome
+    auto-selecione o certificado pelo CN ao acessar o portal.
+    Escreve multiplas entradas (com e sem 'www.') para cobrir redirects.
+    """
+    if os.name != "nt":
+        return False
+    try:
+        import winreg
+
+        # Limpa entradas antigas primeiro
+        _clear_chrome_autoselect_policy()
+
+        key = winreg.CreateKeyEx(
+            winreg.HKEY_CURRENT_USER, _CHROME_POLICY_KEY, 0,
+            winreg.KEY_WRITE | winreg.KEY_READ,
+        )
+
+        # Cobre www. e sem www. (e variantes do gov.br) — Chrome usa exact host match
+        patterns = [
+            url_pattern,
+            url_pattern.replace("www.", ""),
+            "https://*.nfse.gov.br/*",
+            "https://nfse.gov.br/*",
+        ]
+        patterns = list(dict.fromkeys(patterns))  # dedup mantendo ordem
+
+        for idx, pat in enumerate(patterns[:len(_CHROME_POLICY_NAMES)]):
+            policy = {"pattern": pat, "filter": {"SUBJECT": {"CN": cn}}}
+            winreg.SetValueEx(
+                key, _CHROME_POLICY_NAMES[idx], 0, winreg.REG_SZ,
+                json.dumps(policy, ensure_ascii=False),
+            )
+
+        winreg.CloseKey(key)
+        log.info(
+            "Politica Chrome AutoSelectCert escrita (%d patterns) para CN='%s'",
+            min(len(patterns), len(_CHROME_POLICY_NAMES)), cn,
+        )
+        return True
+    except Exception as exc:
+        log.warning("Falha ao escrever politica Chrome no registro: %s", exc)
+        return False
+
+
+def _clear_chrome_autoselect_policy() -> None:
+    """Remove as entradas temporarias de auto-select do registro."""
+    if os.name != "nt":
+        return
+    try:
+        import winreg
+
+        key = winreg.OpenKey(
+            winreg.HKEY_CURRENT_USER, _CHROME_POLICY_KEY, 0, winreg.KEY_ALL_ACCESS,
+        )
+        for name in _CHROME_POLICY_NAMES:
+            try:
+                winreg.DeleteValue(key, name)
+            except FileNotFoundError:
+                pass
+        winreg.CloseKey(key)
+    except Exception:
+        pass
+
+
+def _modernizar_pfx(cert_path: Path, password: str, friendly_name: str = "cert") -> Path:
+    """Re-exporta .pfx legado para PBES2+AES-256 (usado apenas se client_certificates ativo)."""
+    from cryptography.hazmat.primitives.serialization import (
+        BestAvailableEncryption,
+        pkcs12,
+    )
+    data = cert_path.read_bytes()
+    senha_bytes = password.encode("utf-8")
+    key, cert, ca_chain = pkcs12.load_key_and_certificates(data, senha_bytes)
+    novo_pfx_bytes = pkcs12.serialize_key_and_certificates(
+        name=(friendly_name or "cert").encode("utf-8"),
+        key=key, cert=cert, cas=ca_chain,
+        encryption_algorithm=BestAvailableEncryption(senha_bytes),
+    )
+    fd, tmp_path = tempfile.mkstemp(prefix="nfse_pfx_", suffix=".pfx")
+    os.close(fd)
+    out = Path(tmp_path)
+    out.write_bytes(novo_pfx_bytes)
+    return out
+
+
 class NFSePlaywrightRunner:
     """Executa as etapas web no portal NFSe para um unico CNPJ."""
 
@@ -94,6 +191,7 @@ class NFSePlaywrightRunner:
         self.timeout_ms = int(getattr(config, "PLAYWRIGHT_TIMEOUT_MS", 60000))
         self.download_timeout_s = int(getattr(config, "PLAYWRIGHT_DOWNLOAD_TIMEOUT_S", 180))
         self.login_timeout_s = int(getattr(config, "PLAYWRIGHT_LOGIN_TIMEOUT_S", 45))
+        self._pfx_temp_path: Path | None = None
 
     def processar_cliente(
         self,
@@ -103,11 +201,9 @@ class NFSePlaywrightRunner:
     ) -> tuple[int, str, int, str]:
         """Retorna (notas_emitidas, arquivo_emitidas, notas_recebidas, arquivo_recebidas)."""
         _check_cancel(self.cancel_event, f"[{cliente.cnpj}] Execucao cancelada antes de abrir navegador.")
-        output_dir = self.base_output / cliente.cnpj
-        dir_emitidas = output_dir / "emitidas"
-        dir_recebidas = output_dir / "recebidas"
-        dir_emitidas.mkdir(parents=True, exist_ok=True)
-        dir_recebidas.mkdir(parents=True, exist_ok=True)
+        nome_pasta = _sanitizar_nome_pasta(cliente.nome)
+        output_dir = self.base_output / nome_pasta
+        output_dir.mkdir(parents=True, exist_ok=True)
 
         context = self._abrir_contexto(cert, output_dir)
         try:
@@ -117,15 +213,406 @@ class NFSePlaywrightRunner:
 
             self._login_com_certificado(page, cliente, cert)
 
-            notas_emitidas, arq_emitidas = self._processar_tipo(
-                page, params, cliente, "emitidas", dir_emitidas
+            ext_id = self._obter_extension_id(context, cliente)
+
+            ne, ae = self._baixar_tipo_extensao(
+                page, context, ext_id, "emitidas", params, output_dir, cliente
             )
-            notas_recebidas, arq_recebidas = self._processar_tipo(
-                page, params, cliente, "recebidas", dir_recebidas
+            nr, ar = self._baixar_tipo_extensao(
+                page, context, ext_id, "recebidas", params, output_dir, cliente
             )
-            return notas_emitidas, arq_emitidas, notas_recebidas, arq_recebidas
+            return ne, ae, nr, ar
         finally:
-            context.close()
+            try:
+                context.close()
+            except Exception:
+                pass
+            # Remove PFX modernizado temporario (contem chave privada)
+            if self._pfx_temp_path is not None:
+                try:
+                    self._pfx_temp_path.unlink(missing_ok=True)
+                except Exception:
+                    pass
+                self._pfx_temp_path = None
+
+    def _obter_extension_id(self, context, cliente: Cliente) -> str:
+        """Detecta o ID da extensao NFSe no contexto do browser."""
+        ext_id = str(getattr(config, "CHROME_EXTENSION_ID", "")).strip()
+        if ext_id:
+            log.info("[%s] Usando CHROME_EXTENSION_ID configurado: %s...", cliente.cnpj, ext_id[:8])
+            return ext_id
+
+        # Aguarda service workers registrarem (Manifest V3)
+        for _ in range(20):
+            for sw in context.service_workers():
+                if sw.url.startswith("chrome-extension://"):
+                    eid = sw.url.split("//")[1].split("/")[0]
+                    log.info("[%s] Extensao detectada via service worker: %s...", cliente.cnpj, eid[:8])
+                    return eid
+            time.sleep(0.5)
+
+        # Tenta background pages (Manifest V2)
+        for bp in context.background_pages():
+            if bp.url.startswith("chrome-extension://"):
+                eid = bp.url.split("//")[1].split("/")[0]
+                log.info("[%s] Extensao detectada via background page: %s...", cliente.cnpj, eid[:8])
+                return eid
+
+        raise RuntimeError(
+            f"[{cliente.cnpj}] ID da extensao NFSe nao encontrado automaticamente. "
+            "Configure CHROME_EXTENSION_ID em config.py."
+        )
+
+    def _abrir_popup_extensao(self, context, ext_id: str, page_portal) -> "Page":
+        """
+        Abre o Side Panel da extensao 'Baixar NFSe' (Cechinel).
+
+        Estrategia: clique de mouse REAL via pyautogui no icone fixado.
+        Necessario porque chrome.sidePanel.open() exige user gesture, e o Chrome
+        sob automacao trata cliques sinteticos (CDP/JS) como nao-confiaveis.
+        Um clique fisico no nivel do SO e considerado user gesture genuino.
+        """
+        cdp = context.new_cdp_session(page_portal)
+        try:
+            cdp.send("Target.setDiscoverTargets", {"discover": True})
+            cdp.send("Target.setAutoAttach", {
+                "autoAttach": True, "waitForDebuggerOnStart": False, "flatten": True,
+            })
+        except Exception as e:
+            log.debug("CDP setup falhou: %s", e)
+
+        # Maximiza a janela do Chrome para coordenadas previsiveis do icone
+        try:
+            page_portal.bring_to_front()
+            cdp.send("Browser.setWindowBounds", {
+                "windowId": cdp.send("Browser.getWindowForTarget")["windowId"],
+                "bounds": {"windowState": "maximized"},
+            })
+            time.sleep(0.5)
+        except Exception as e:
+            log.debug("Maximize falhou: %s", e)
+
+        # Clique fisico no icone da extensao via pyautogui
+        popup = self._clicar_icone_via_pyautogui(context, ext_id, cdp)
+
+        if popup is None:
+            # Diagnostico: lista todos os targets
+            try:
+                res = cdp.send("Target.getTargets")
+                targets_str = "\n".join(
+                    f"  type={t.get('type'):>15} url={t.get('url','')[:120]}"
+                    for t in res.get("targetInfos", [])
+                )
+                log.warning("Targets CDP atuais:\n%s", targets_str)
+            except Exception:
+                pass
+            raise RuntimeError(
+                f"Nao foi possivel abrir o Side Panel da extensao (ID: {ext_id}). "
+                "Verifique que: (1) o icone esta FIXADO na barra do Chrome, "
+                "(2) a tela do Chrome esta visivel (nao minimizada), "
+                "(3) nenhuma outra janela esta cobrindo o Chrome."
+            )
+
+        # 5. Aguarda o botao de download renderizar
+        try:
+            popup.wait_for_selector("#startDownloadBtn", state="attached", timeout=10000)
+            log.info("Botao #startDownloadBtn pronto: %s", popup.url)
+        except PlaywrightTimeoutError:
+            log.warning("Botao demorou a renderizar mas continuando. URL: %s", popup.url)
+
+        return popup
+
+    def _clicar_icone_via_pyautogui(self, context, ext_id: str, cdp):
+        """
+        Localiza o icone da extensao na tela por reconhecimento de imagem
+        (icon16.png do extension dir) e clica fisicamente nele.
+        Clique real do SO = user gesture aceito pelo Chrome.
+        """
+        try:
+            import pyautogui
+            import pygetwindow as gw
+        except ImportError as e:
+            log.error("pyautogui/pygetwindow nao instalados: %s. "
+                      "Rode: pip install -r requirements.txt", e)
+            return None
+
+        # Ativa janela do Chrome
+        try:
+            chrome_wins = [w for w in gw.getAllWindows()
+                           if w.title and ("Chrome" in w.title or "NFS-e" in w.title)]
+            if chrome_wins:
+                win = next((w for w in chrome_wins if w.visible and w.width > 100), chrome_wins[0])
+                log.info("Janela Chrome: '%s' em (%d,%d) %dx%d",
+                         win.title, win.left, win.top, win.width, win.height)
+                win.activate()
+                time.sleep(0.5)
+        except Exception as e:
+            log.debug("Ativacao da janela falhou: %s", e)
+
+        # PRIORIDADE 1: reconhecimento de imagem (se opencv estiver instalado)
+        icon_locs = []
+        try:
+            ext_dir = Path(str(getattr(config, "CHROME_EXTENSION_DIR", "")).strip())
+            for img_name in ("icon16.png", "icon32.png", "icon48.png"):
+                img_path = ext_dir / img_name
+                if not img_path.exists():
+                    continue
+                try:
+                    loc = pyautogui.locateOnScreen(str(img_path), confidence=0.6, grayscale=False)
+                    if loc:
+                        center = pyautogui.center(loc)
+                        icon_locs.append((center.x, center.y, f"img:{img_name}"))
+                        log.info("Icone '%s' encontrado em (%d, %d)",
+                                 img_name, center.x, center.y)
+                        break
+                except Exception as e:
+                    log.debug("locateOnScreen para %s falhou: %s", img_name, e)
+        except Exception as e:
+            log.debug("Reconhecimento de imagem falhou: %s", e)
+
+        # PRIORIDADE 2: coordenadas fixas baseadas em janela maximizada
+        # Para Chrome maximizado, layout right-to-left a partir do canto direito:
+        #   menu(3pts) ~ -20 | avatar ~ -60 | puzzle ~ -100 | EXT1 ~ -135 |
+        #   EXT2 ~ -165 | star ~ -195
+        screen_w, screen_h = pyautogui.size()
+        log.info("Tela: %dx%d", screen_w, screen_h)
+        toolbar_y = 85  # altura tipica da barra de ferramentas no Chrome maximizado
+        # Tenta varios offsets, do mais provavel pra menos provavel
+        for offset_x in (135, 165, 100, 195, 70, 225):
+            icon_locs.append((screen_w - offset_x, toolbar_y, f"coord:-{offset_x}"))
+
+        # Tenta clicar em cada posicao candidata
+        for x, y, src in icon_locs:
+            log.info("pyautogui.click em (%d, %d) — fonte: %s", x, y, src)
+            try:
+                pyautogui.click(x=x, y=y, clicks=1)
+            except Exception as e:
+                log.warning("Click falhou: %s", e)
+                continue
+            time.sleep(1.5)
+            popup = self._aguardar_pagina_extensao(context, ext_id, timeout_s=3, cdp=cdp)
+            if popup is not None:
+                log.info("Side panel abriu apos clique em (%d, %d) [%s]", x, y, src)
+                try:
+                    popup.wait_for_selector("#startDownloadBtn", state="attached", timeout=10000)
+                except PlaywrightTimeoutError:
+                    log.warning("Botao demorou a renderizar mas continuando.")
+                return popup
+
+        # PRIORIDADE 3: pede para o usuario clicar manualmente
+        log.warning(
+            "============================================================\n"
+            "  AUTOMACAO NAO CONSEGUIU CLICAR NO ICONE DA EXTENSAO.\n"
+            "  ACAO MANUAL: clique no icone 'N' verde da extensao\n"
+            "  'Baixar NFSe' no canto superior direito do Chrome AGORA.\n"
+            "  Voce tem 60 segundos.\n"
+            "============================================================"
+        )
+        popup = self._aguardar_pagina_extensao(context, ext_id, timeout_s=60, cdp=cdp)
+        if popup is not None:
+            log.info("Side panel detectado apos clique manual.")
+            try:
+                popup.wait_for_selector("#startDownloadBtn", state="attached", timeout=10000)
+            except PlaywrightTimeoutError:
+                log.warning("Botao demorou a renderizar mas continuando.")
+            return popup
+
+        return None
+
+    def _aguardar_service_worker(self, context, cdp, ext_id: str, timeout_s: int = 15):
+        """Localiza/acorda o SW da extensao via CDP."""
+        # Habilita CDP ServiceWorker domain (precisa antes de startWorker)
+        try:
+            cdp.send("ServiceWorker.enable")
+        except Exception:
+            pass
+
+        # Forca o SW a acordar via ServiceWorker.startWorker
+        ext_origin = f"chrome-extension://{ext_id}"
+        for scope_candidate in (f"{ext_origin}/", f"{ext_origin}"):
+            try:
+                cdp.send("ServiceWorker.startWorker", {"scopeURL": scope_candidate})
+                log.info("ServiceWorker.startWorker enviado para %s", scope_candidate)
+                break
+            except Exception as e:
+                log.debug("startWorker '%s' falhou: %s", scope_candidate, e)
+
+        end = time.time() + timeout_s
+        while time.time() < end:
+            # Procura em service_workers do Playwright (SW ativo)
+            for s in context.service_workers:
+                if ext_id in s.url:
+                    return s
+
+            # Procura targets via CDP e attacha (forca registro como SW ativo)
+            try:
+                res = cdp.send("Target.getTargets")
+                for t in res.get("targetInfos", []):
+                    url = t.get("url", "")
+                    ttype = t.get("type", "")
+                    if ext_id in url and ttype in ("service_worker", "worker"):
+                        try:
+                            cdp.send("Target.attachToTarget", {
+                                "targetId": t["targetId"], "flatten": True,
+                            })
+                        except Exception:
+                            pass
+            except Exception:
+                pass
+
+            # Tenta novamente startWorker (caso o primeiro tenha falhado)
+            try:
+                cdp.send("ServiceWorker.startWorker", {"scopeURL": f"{ext_origin}/"})
+            except Exception:
+                pass
+
+            time.sleep(0.5)
+        return None
+
+    def _aguardar_pagina_extensao(self, context, ext_id: str, timeout_s: int = 5, cdp=None):
+        """Aguarda qualquer target (page/sidepanel/etc) cuja URL pertenca a extensao."""
+        prefix = f"chrome-extension://{ext_id}/"
+
+        # Ativa descoberta de TODOS os tipos de target (incluindo side panels)
+        if cdp is not None:
+            try:
+                cdp.send("Target.setDiscoverTargets", {
+                    "discover": True,
+                    "filter": [{}],  # filtro vazio = todos os tipos
+                })
+            except Exception:
+                pass
+
+        end = time.time() + timeout_s
+        ultimo_log = 0.0
+        while time.time() < end:
+            # 1. Procura em context.pages (tabs normais)
+            for p in context.pages:
+                if p.url.startswith(prefix):
+                    return p
+
+            # 2. Procura via CDP — match permissivo (qualquer tipo)
+            if cdp is not None:
+                try:
+                    res = cdp.send("Target.getTargets")
+                    for t in res.get("targetInfos", []):
+                        url = t.get("url", "")
+                        if not url.startswith(prefix):
+                            continue
+                        # Ignora apenas o service worker
+                        if t.get("type") in ("service_worker", "worker"):
+                            continue
+                        tid = t.get("targetId")
+                        log.info("Target da extensao encontrado: type=%s url=%s",
+                                 t.get("type"), url[:120])
+                        try:
+                            cdp.send("Target.attachToTarget", {
+                                "targetId": tid, "flatten": True,
+                            })
+                            time.sleep(0.6)
+                            for p in context.pages:
+                                if p.url.startswith(prefix):
+                                    return p
+                            # Se nao virou page do Playwright, ja sabemos o targetId
+                            # Devolve um objeto pseudo-page que usa CDP direto
+                            return _SidePanelViaCdp(cdp, tid, url)
+                        except Exception as e:
+                            log.debug("Attach falhou: %s", e)
+                except Exception:
+                    pass
+
+            # Log periodico de todos os targets (a cada 5s) — diagnostico
+            if cdp is not None and time.time() - ultimo_log > 5:
+                ultimo_log = time.time()
+                try:
+                    res = cdp.send("Target.getTargets")
+                    targets_str = "\n".join(
+                        f"  type={t.get('type','?'):>16} url={t.get('url','')[:130]}"
+                        for t in res.get("targetInfos", [])
+                    )
+                    log.info("Targets atuais aguardando side panel:\n%s", targets_str)
+                except Exception:
+                    pass
+
+            time.sleep(0.3)
+        return None
+
+    def _baixar_tipo_extensao(
+        self,
+        page_portal,
+        context,
+        ext_id: str,
+        tipo: str,
+        params: Parametros,
+        output_dir: Path,
+        cliente: Cliente,
+    ) -> tuple[int, str]:
+        """Abre o popup da extensao, configura tipo+datas e inicia o download."""
+        _check_cancel(self.cancel_event, f"[{cliente.cnpj}] Cancelado antes de baixar {tipo}.")
+        log.info("[%s] Baixando %s via extensao NFSe...", cliente.cnpj, tipo)
+
+        downloads_capturados: list = []
+
+        def _on_download(dl) -> None:
+            downloads_capturados.append(dl)
+
+        context.on("download", _on_download)
+        popup = None
+        try:
+            popup = self._abrir_popup_extensao(context, ext_id, page_portal)
+
+            # Seleciona tipo: clica no botao "Emitidas" ou "Recebidas"
+            tipo_label = "Emitidas" if tipo == "emitidas" else "Recebidas"
+            popup.get_by_text(tipo_label, exact=True).click()
+            popup.wait_for_timeout(400)
+
+            # Preenche datas
+            data_inicio_iso = _data_br_para_iso(params.data_inicio)
+            data_fim_iso = _data_br_para_iso(params.data_fim)
+            campos_data = popup.locator("input[type='date']")
+            campos_data.nth(0).fill(data_inicio_iso)
+            campos_data.nth(1).fill(data_fim_iso)
+            popup.wait_for_timeout(300)
+
+            # Clica em "Iniciar Download"
+            popup.get_by_text("Iniciar Download").click()
+            log.info("[%s] %s: download iniciado, aguardando arquivo...", cliente.cnpj, tipo)
+
+            # Fecha popup (a extensao baixa em segundo plano)
+            try:
+                popup.wait_for_timeout(800)
+                popup.close()
+            except Exception:
+                pass
+            popup = None
+
+            # Aguarda o arquivo aparecer
+            deadline = time.monotonic() + self.download_timeout_s
+            while not downloads_capturados and time.monotonic() < deadline:
+                _check_cancel(self.cancel_event, f"[{cliente.cnpj}] Cancelado aguardando download {tipo}.")
+                time.sleep(1)
+
+            if not downloads_capturados:
+                log.info("[%s] Nenhum download de %s detectado no periodo.", cliente.cnpj, tipo)
+                return 0, ""
+
+            dl = downloads_capturados[0]
+            fname = _nome_download_cliente(cliente.cnpj, dl.suggested_filename)
+            dest = output_dir / fname
+            dl.save_as(str(dest))
+
+            count = _contar_xmls_ativos_no_zip(dest)
+            _extrair_zip(dest, output_dir)
+            log.info("[%s] %s: %d nota(s) ativa(s) em %s", cliente.cnpj, tipo, count, dest.name)
+            return count, str(dest)
+
+        finally:
+            context.remove_listener("download", _on_download)
+            if popup is not None:
+                try:
+                    popup.close()
+                except Exception:
+                    pass
 
     def _processar_tipo(
         self,
@@ -144,11 +631,11 @@ class NFSePlaywrightRunner:
             return 0, ""
 
         log.info("[%s] Processando %s: %s", cliente.cnpj, tipo, url)
-        page.goto(url, wait_until="domcontentloaded")
+        page.goto(url, wait_until="commit", timeout=30000)
         _check_cancel(self.cancel_event, f"[{cliente.cnpj}] Cancelado apos navegar para {tipo}.")
 
         self._aplicar_filtros_periodo(page, params, cliente)
-        notas = self._contar_notas(page, cliente)
+        notas = self._contar_notas(page, cliente, tipo)
         log.info("[%s] %s no periodo: %d nota(s)", cliente.cnpj, tipo.capitalize(), notas)
 
         arquivo = ""
@@ -160,13 +647,41 @@ class NFSePlaywrightRunner:
         _check_cancel(self.cancel_event, "Execucao cancelada antes de abrir contexto do navegador.")
         args = self._montar_args_chromium(cert)
         user_data_dir = Path(getattr(config, "CHROME_USER_DATA_DIR", "")).expanduser()
+
         if not str(user_data_dir).strip():
             user_data_dir = output_dir / "_profile"
-        else:
-            sufixo = cert.documento or cert.nome_amigavel or "default"
-            sufixo = re.sub(r"[^\w\-]", "_", sufixo)
-            user_data_dir = user_data_dir / sufixo
         user_data_dir.mkdir(parents=True, exist_ok=True)
+
+        # Limpa cookies/storage do cliente anterior — isolamento entre clientes
+        # (substitui o que --incognito fazia, mas sem bloquear chrome-extension://)
+        for subdir in ("Default", "Profile 1"):
+            profile_path = user_data_dir / subdir
+            if profile_path.exists():
+                for to_clear in ("Cookies", "Cookies-journal", "Login Data",
+                                 "Login Data-journal", "Local Storage",
+                                 "Session Storage", "Sessions", "IndexedDB"):
+                    target = profile_path / to_clear
+                    try:
+                        if target.is_file():
+                            target.unlink(missing_ok=True)
+                        elif target.is_dir():
+                            import shutil
+                            shutil.rmtree(target, ignore_errors=True)
+                    except Exception:
+                        pass
+
+        # Escreve a politica AutoSelectCertificateForUrls em HKCU para que o
+        # Chrome auto-selecione o certificado pelo CN ao iniciar.
+        patterns = _split_csv(getattr(config, "AUTOSELECT_CERTIFICATE_PATTERNS", ""))
+        url_pattern = patterns[0] if patterns else "https://www.nfse.gov.br/*"
+        if cert.cn:
+            sucesso_reg = _set_chrome_autoselect_policy(cert.cn, url_pattern)
+            if not sucesso_reg:
+                log.warning(
+                    "ATENCAO: politica de auto-selecao nao pode ser escrita no registro "
+                    "(provavelmente seu ambiente tem GPO corporativa). O dialogo de "
+                    "selecao de certificado vai aparecer e voce precisara clicar manualmente."
+                )
 
         kwargs: dict = {
             "user_data_dir": str(user_data_dir),
@@ -176,6 +691,13 @@ class NFSePlaywrightRunner:
             "downloads_path": str(output_dir),
             "timeout": self.timeout_ms,
             "slow_mo": int(getattr(config, "PLAYWRIGHT_SLOW_MO_MS", 0)),
+            # CRITICO: Playwright passa --disable-extensions por default,
+            # que desativa TODAS as extensoes (inclusive a NFSe instalada via Web Store).
+            # Removemos esses flags para a extensao funcionar.
+            "ignore_default_args": [
+                "--disable-extensions",
+                "--disable-component-extensions-with-background-pages",
+            ],
         }
 
         channel = str(getattr(config, "CHROME_CHANNEL", "")).strip()
@@ -194,39 +716,46 @@ class NFSePlaywrightRunner:
         args: list[str] = [
             "--disable-session-crashed-bubble",
             "--disable-features=InfiniteSessionRestore",
+            "--no-first-run",
+            "--no-default-browser-check",
+            "--no-remote",  # processo Chrome proprio (nao reusa o aberto)
+            # NOTA: --incognito foi removido porque bloqueia chrome-extension://
+            # URLs (ERR_BLOCKED_BY_CLIENT no popup.html). O perfil dedicado
+            # 'Chrome NFSe Automacao' ja garante isolamento de sessao por cliente.
         ]
 
-        extension_dir = str(getattr(config, "CHROME_EXTENSION_DIR", "")).strip()
-        if extension_dir:
-            ext_path = Path(extension_dir)
-            if not ext_path.exists():
-                raise FileNotFoundError(f"Extensao nao encontrada: {ext_path}")
-            args.extend(
-                [
-                    f"--disable-extensions-except={ext_path}",
-                    f"--load-extension={ext_path}",
-                ]
-            )
-            log.info("Extensao carregada: %s", ext_path)
+        profile_dir = str(getattr(config, "CHROME_PROFILE_DIRECTORY", "")).strip()
+        if profile_dir:
+            args.append(f"--profile-directory={profile_dir}")
+
+        # NOTA: a extensao 'Baixar NFSe' deve estar INSTALADA permanentemente no
+        # perfil isolado (CHROME_USER_DATA_DIR). Use CONFIGURAR_EXTENSAO.bat para
+        # instalar pela Chrome Web Store uma unica vez.
+        # NAO usamos --load-extension porque:
+        #  1. Chrome tem bug com paths que contem espacos (silenciosamente ignora).
+        #  2. Politicas corporativas podem bloquear extensoes descompactadas.
+        #  3. A extensao instalada via Web Store carrega de forma confiavel.
 
         patterns = _split_csv(getattr(config, "AUTOSELECT_CERTIFICATE_PATTERNS", ""))
         if not patterns:
             raise ValueError("AUTOSELECT_CERTIFICATE_PATTERNS nao configurado.")
 
+        # Filtra apenas por SUBJECT.CN — SERIAL_NUMBER no topo do filtro e invalido
+        # no Chrome e faz o Chrome rejeitar o filtro inteiro (exibindo todos os certs).
+        # Campos validos: SUBJECT e ISSUER com sub-campos CN, O, OU, L.
         filtro: dict[str, object] = {}
         if cert.cn:
             filtro["SUBJECT"] = {"CN": cert.cn}
-        if cert.serial_number:
-            filtro["SERIAL_NUMBER"] = cert.serial_number
 
         policy = [{"pattern": pattern, "filter": filtro} for pattern in patterns]
         policy_arg = json.dumps(policy, ensure_ascii=True, separators=(",", ":"))
         args.append(f"--auto-select-certificate-for-urls={policy_arg}")
 
         log.info(
-            "AutoSelectCertificateForUrls aplicado para %s (thumbprint %s)",
-            cert.documento or cert.nome_amigavel,
+            "AutoSelectCertificateForUrls: CN='%s' | thumbprint %s | policy=%s",
+            cert.cn,
             cert.thumbprint_sha1[:16],
+            policy_arg[:120],
         )
         return args
 
@@ -237,10 +766,29 @@ class NFSePlaywrightRunner:
             raise ValueError("NFSE_LOGIN_URL nao configurada.")
 
         log.info("[%s] Acessando login com certificado: %s", cliente.cnpj, login_url)
-        page.goto(login_url, wait_until="domcontentloaded")
+        try:
+            page.goto(login_url, wait_until="commit", timeout=30000)
+        except Exception as nav_err:
+            err_str = str(nav_err)
+            # Chrome pode abortar/redirecionar durante selecao automatica de certificado —
+            # nao e um erro real se a pagina ja saiu da tela de login.
+            if any(k in err_str for k in ("ERR_ABORTED", "net::", "frame was detached")):
+                log.debug("[%s] Navegacao abortada (possivel redirecionamento de cert): %s",
+                          cliente.cnpj, err_str[:120])
+                page.wait_for_timeout(2000)
+                if "login" not in page.url.lower():
+                    log.info("[%s] Redirecionado apos selecao de certificado -> %s",
+                             cliente.cnpj, page.url)
+                    log.info("[%s] Login concluido com certificado %s",
+                             cliente.cnpj, cert.thumbprint_sha1[:16])
+                    return
+            else:
+                raise
+
         _check_cancel(self.cancel_event, f"[{cliente.cnpj}] Execucao cancelada durante login.")
 
-        # Portal NFS-e Nacional exige clique no bloco "Acesso com certificado digital".
+        # Portal NFS-e Nacional — tenta clicar no botao "Acesso com certificado digital".
+        # Se o Chrome ja redirecionou automaticamente, o metodo retorna sem erro.
         if self._is_nfse_nacional_login(page):
             self._acionar_login_certificado_nfse(page, cliente)
 
@@ -261,48 +809,144 @@ class NFSePlaywrightRunner:
                         "'Acesso com certificado digital' ocorreu."
                     ) from exc
             else:
-                # Fallback generico quando nao houver seletor de sucesso configurado.
                 page.wait_for_timeout(2500)
 
         log.info("[%s] Login concluido com certificado %s", cliente.cnpj, cert.thumbprint_sha1[:16])
 
     @staticmethod
     def _is_nfse_nacional_login(page: Page) -> bool:
-        return "nfse.gov.br/emissornacional/login" in page.url.lower()
+        url = page.url.lower()
+        return "nfse.gov.br/emissornacional/login" in url or "login.acesso.gov.br" in url
 
     def _acionar_login_certificado_nfse(self, page: Page, cliente: Cliente) -> None:
-        selectors: list[str] = []
+        # Se o Chrome ja redirecionou para fora da tela de login, nao ha nada a clicar.
+        if not self._is_nfse_nacional_login(page):
+            return
+
+        # Aguarda a pagina carregar completamente antes de buscar o botao.
+        try:
+            page.wait_for_load_state("networkidle", timeout=10000)
+        except Exception:
+            pass
+
+        # Verifica novamente se ainda esta na tela de login apos carregamento
+        if not self._is_nfse_nacional_login(page):
+            return
+
+        # ------------------------------------------------------------------
+        # 1. Seletor configurado pelo usuario em config.py (prioridade maxima)
+        # ------------------------------------------------------------------
         cfg_selector = str(getattr(config, "NFSE_SELECTOR_BOTAO_CERTIFICADO", "")).strip()
         if cfg_selector:
-            selectors.append(cfg_selector)
+            try:
+                alvo = page.locator(cfg_selector).first
+                alvo.scroll_into_view_if_needed(timeout=3000)
+                alvo.click(timeout=8000)
+                log.info("[%s] Clique via seletor config '%s'.", cliente.cnpj, cfg_selector)
+                page.wait_for_timeout(1500)
+                return
+            except Exception:
+                pass
 
-        selectors.extend(
-            [
-                "a:has(img[alt*='Certificado'])",
-                "a:has(img[src*='cert'])",
-                "img[alt*='Certificado']",
-            ]
-        )
+        # ------------------------------------------------------------------
+        # 2. JavaScript: varre todas as <img> buscando 'cert' em alt/src/title
+        #    e clica no <a> pai — mais confiavel que CSS selector
+        # ------------------------------------------------------------------
+        try:
+            clicked = page.evaluate("""
+                () => {
+                    const kw = ['certificado', 'certificate', 'cert'];
+                    const has = (s) => kw.some(k => (s||'').toLowerCase().includes(k));
+                    for (const img of document.querySelectorAll('img')) {
+                        if (has(img.alt) || has(img.src) || has(img.title)) {
+                            const el = img.closest('a') || img.closest('button') || img;
+                            el.click();
+                            return 'img:' + (img.alt || img.src.slice(-30));
+                        }
+                    }
+                    for (const a of document.querySelectorAll('a[href]')) {
+                        if (has(a.href) || has(a.textContent)) {
+                            a.click();
+                            return 'a:' + a.href.slice(-40);
+                        }
+                    }
+                    return null;
+                }
+            """)
+            if clicked:
+                log.info("[%s] Clique no certificado via JavaScript (%s).", cliente.cnpj, clicked)
+                page.wait_for_timeout(1500)
+                return
+        except Exception as js_err:
+            log.debug("[%s] JS click falhou: %s", cliente.cnpj, js_err)
 
-        for selector in selectors:
+        # ------------------------------------------------------------------
+        # 3. Seletores CSS de fallback
+        # ------------------------------------------------------------------
+        css_selectors = [
+            "img[alt='Certificado Digital']",
+            "img[alt*='Certificado']",
+            "img[title*='Certificado']",
+            "a:has(img[alt*='Certificado'])",
+            "a:has(img[alt*='certificado'])",
+            "a:has(img[src*='cert'])",
+            "a[href*='Certificate']",
+            "a[href*='certificate']",
+            "a[href*='certificado']",
+            "[class*='certificado']",
+            "[class*='cert-']",
+        ]
+        for selector in css_selectors:
             try:
                 alvo = page.locator(selector).first
                 if alvo.count() == 0:
                     continue
+                alvo.scroll_into_view_if_needed(timeout=3000)
                 alvo.click(timeout=8000)
-                log.info(
-                    "[%s] Clique em 'Acesso com certificado digital' realizado (%s).",
-                    cliente.cnpj,
-                    selector,
-                )
-                page.wait_for_timeout(1200)
+                log.info("[%s] Clique via CSS '%s'.", cliente.cnpj, selector)
+                page.wait_for_timeout(1500)
                 return
-            except Exception:  # noqa: BLE001
+            except Exception:
                 continue
+
+        # ------------------------------------------------------------------
+        # 4. Localizacao por texto visivel
+        # ------------------------------------------------------------------
+        for texto in ("Certificado Digital", "Acesso com certificado", "Certificado"):
+            for locator in (
+                page.get_by_role("link", name=re.compile(texto, re.IGNORECASE)),
+                page.get_by_role("button", name=re.compile(texto, re.IGNORECASE)),
+                page.get_by_text(re.compile(texto, re.IGNORECASE)).first,
+            ):
+                try:
+                    if locator.count() == 0:
+                        continue
+                    locator.scroll_into_view_if_needed(timeout=3000)
+                    locator.click(timeout=8000)
+                    log.info("[%s] Clique via texto '%s'.", cliente.cnpj, texto)
+                    page.wait_for_timeout(1500)
+                    return
+                except Exception:
+                    continue
+
+        # Diagnostico: loga imagens encontradas para ajudar a criar o seletor
+        try:
+            log.warning(
+                "[%s] Botao de certificado nao encontrado. Titulo: '%s' | URL: %s",
+                cliente.cnpj, page.title(), page.url,
+            )
+            imgs = page.evaluate("""
+                () => Array.from(document.querySelectorAll('img')).slice(0, 10)
+                    .map(i => ({alt: i.alt, src: i.src.slice(-40), id: i.id}))
+            """)
+            log.warning("[%s] Imagens na pagina: %s", cliente.cnpj, imgs)
+        except Exception:
+            pass
 
         raise RuntimeError(
             "Nao foi possivel localizar o botao de login por certificado no portal NFS-e. "
-            "Ajuste NFSE_SELECTOR_BOTAO_CERTIFICADO em config.py."
+            "Verifique os logs acima (lista de imagens) e configure "
+            "NFSE_SELECTOR_BOTAO_CERTIFICADO em config.py com o seletor correto."
         )
 
     def _aplicar_filtros_periodo(self, page: Page, params: Parametros, cliente: Cliente) -> None:
@@ -332,7 +976,7 @@ class NFSePlaywrightRunner:
         campo.dispatch_event("change")
         campo.dispatch_event("blur")
 
-    def _contar_notas(self, page: Page, cliente: Cliente) -> int:
+    def _contar_notas(self, page: Page, cliente: Cliente, tipo: str = "emitidas") -> int:
         _check_cancel(self.cancel_event, f"[{cliente.cnpj}] Execucao cancelada antes da contagem.")
         sel_linhas = str(getattr(config, "NFSE_SELECTOR_LINHAS_NOTAS", "")).strip()
         if sel_linhas:
@@ -351,7 +995,9 @@ class NFSePlaywrightRunner:
         regexes = (
             r"total\s*[:=]\s*(\d+)",
             r"(\d+)\s+nota(?:s)?\s+emitida(?:s)?",
+            r"(\d+)\s+nota(?:s)?\s+recebida(?:s)?",
             r"(\d+)\s+resultado(?:s)?",
+            r"(\d+)\s+registro(?:s)?",
         )
         for pattern in regexes:
             m = re.search(pattern, body_text, re.IGNORECASE)
@@ -359,7 +1005,7 @@ class NFSePlaywrightRunner:
                 return int(m.group(1))
 
         raise RuntimeError(
-            f"[{cliente.cnpj}] Nao foi possivel detectar notas. "
+            f"[{cliente.cnpj}] Nao foi possivel detectar notas {tipo}. "
             "Configure NFSE_SELECTOR_LINHAS_NOTAS ou NFSE_SELECTOR_TEXTO_SEM_NOTAS."
         )
 
@@ -425,6 +1071,50 @@ def _split_csv(value: str) -> list[str]:
 
 def _normalizar_cnpj(value: str) -> str:
     return re.sub(r"\D", "", value or "")
+
+
+def _sanitizar_nome_pasta(nome: str) -> str:
+    """Converte nome do cliente para nome de pasta válido no Windows."""
+    nome = _html.unescape(nome)           # &amp; → &
+    nome = re.sub(r'[<>:"/\\|?*]', '', nome)
+    nome = nome.strip(". ")
+    return nome[:120] or "sem_nome"
+
+
+def _data_br_para_iso(data_br: str) -> str:
+    """Converte DD/MM/YYYY para YYYY-MM-DD (formato de input[type='date'])."""
+    partes = data_br.strip().split("/")
+    if len(partes) == 3:
+        return f"{partes[2]}-{partes[1]}-{partes[0]}"
+    return data_br
+
+
+def _extrair_zip(arquivo_zip: Path, destino: Path) -> None:
+    """Extrai o ZIP no diretório destino, preservando subpastas (ex: Canceladas)."""
+    try:
+        with zipfile.ZipFile(arquivo_zip) as zf:
+            zf.extractall(destino)
+        log.info("ZIP extraído em: %s", destino)
+    except Exception as exc:
+        log.warning("Falha ao extrair %s: %s", arquivo_zip.name, exc)
+
+
+def _contar_xmls_ativos_no_zip(arquivo: Path) -> int:
+    """Conta XMLs ativos (fora de subpasta 'Canceladas') dentro do ZIP."""
+    try:
+        with zipfile.ZipFile(arquivo) as zf:
+            count = 0
+            for name in zf.namelist():
+                if not name.lower().endswith(".xml"):
+                    continue
+                partes = name.replace("\\", "/").split("/")
+                # Se qualquer pasta pai contiver "cancelad", pula
+                if any("cancelad" in p.lower() for p in partes[:-1]):
+                    continue
+                count += 1
+            return count
+    except Exception:
+        return 0
 
 
 def _snapshot_files(folder: Path) -> set[str]:
@@ -498,8 +1188,18 @@ def preparar_parametros(
                 filtrados.append(cnpj)
                 vistos.add(cnpj)
 
+    def _resolver_path(valor: str) -> str:
+        """Resolve caminho relativo em relacao ao diretorio de config.py."""
+        if not valor:
+            return valor
+        p = Path(valor)
+        if p.is_absolute():
+            return valor
+        config_dir = Path(getattr(config, "__file__", __file__)).parent
+        return str(config_dir / p)
+
     params = Parametros(
-        xlsx_path=str(getattr(config, "XLSX_PATH", "")),
+        xlsx_path=_resolver_path(str(getattr(config, "XLSX_PATH", ""))),
         pasta_certs=str(getattr(config, "PASTA_CERTS", "")),
         pasta_saida=str(getattr(config, "PASTA_SAIDA", "")),
         data_inicio=data_inicio,
@@ -590,6 +1290,17 @@ def _find_col(headers: list[str], candidatos: list[str]) -> int | None:
     return None
 
 
+def _escolher_cert_mais_recente(candidatos: list) -> "CertificadoInfo":
+    """Dentre certificados duplicados, retorna o com maior data de validade."""
+    def _validade_key(c) -> date:
+        try:
+            partes = c.valido_ate.split("/")
+            return date(int(partes[2]), int(partes[1]), int(partes[0]))
+        except Exception:
+            return date.min
+    return max(candidatos, key=_validade_key)
+
+
 def executar_local(
     params: Parametros,
     cancel_event: threading.Event | None = None,
@@ -599,18 +1310,51 @@ def executar_local(
     certs_unicos, duplicados = indexar_certificados_por_cnpj(certs)
     clientes_xlsx = _carregar_clientes_xlsx(params.xlsx_path)
 
+    todos_cert_cnpjs = set(certs_unicos.keys()) | set(duplicados.keys())
+
     if params.cnpjs:
         alvo_cnpjs = list(params.cnpjs)
     elif clientes_xlsx:
+        # XLSX como filtro; inclui tambem CNPJs com cert duplicado (resolvidos adiante)
         alvo_cnpjs = sorted(clientes_xlsx.keys())
+        # Diagnostico: CNPJs do XLSX sem certificado correspondente
+        sem_cert = sorted(set(alvo_cnpjs) - todos_cert_cnpjs)
+        if sem_cert:
+            log.warning(
+                "ATENCAO: %d CNPJ(s) do XLSX nao tem certificado .pfx na pasta:",
+                len(sem_cert),
+            )
+            for cnpj_faltante in sem_cert:
+                # Busca CNPJs similares (primeiros 8 digitos = raiz do CNPJ)
+                raiz = cnpj_faltante[:8]
+                similares = [c for c in todos_cert_cnpjs if c[:8] == raiz]
+                if similares:
+                    log.warning(
+                        "  CNPJ %s -> nao encontrado, mas existe SIMILAR: %s "
+                        "(confira se o CNPJ na planilha esta correto)",
+                        cnpj_faltante, ", ".join(similares),
+                    )
+                else:
+                    log.warning(
+                        "  CNPJ %s -> nao encontrado na pasta de certificados",
+                        cnpj_faltante,
+                    )
+            # Se NENHUM CNPJ do XLSX tem cert, avisa mas respeita a planilha
+            if len(sem_cert) == len(alvo_cnpjs):
+                log.warning(
+                    "Nenhum CNPJ do XLSX corresponde a um certificado na pasta de certs. "
+                    "Verifique se PASTA_CERTS em config.py aponta para a pasta correta."
+                )
     else:
-        alvo_cnpjs = sorted(certs_unicos.keys())
+        # Sem filtro: processa todos com cert valido (unicos + duplicados resolvidos)
+        alvo_cnpjs = sorted(todos_cert_cnpjs)
 
     if not alvo_cnpjs:
         raise RuntimeError("Nenhum CNPJ encontrado para processar.")
 
     log.info(
-        "Certificados validos: %d | Duplicados: %d | CNPJs alvo: %d",
+        "Certificados lidos: %d | CNPJs unicos: %d | CNPJs duplicados: %d | CNPJs alvo: %d",
+        len(certs),
         len(certs_unicos),
         len(duplicados),
         len(alvo_cnpjs),
@@ -623,35 +1367,40 @@ def executar_local(
         for idx, cnpj in enumerate(alvo_cnpjs, start=1):
             _check_cancel(cancel_event, "Execucao cancelada pelo usuario.")
             nome = clientes_xlsx.get(cnpj, cnpj)
-            log.info("[%d/%d] Processando CNPJ %s", idx, len(alvo_cnpjs), cnpj)
+            log.info(
+                "[%d/%d] Cliente XLSX: '%s' (CNPJ %s) — buscando .pfx correspondente...",
+                idx, len(alvo_cnpjs), nome, cnpj,
+            )
 
-            if cnpj in duplicados:
-                msg = (
-                    f"CNPJ {cnpj} possui certificados duplicados "
-                    f"({len(duplicados[cnpj])} arquivos .pfx)."
-                )
-                log.error(msg)
-                resultados.append(
-                    ResultadoCNPJ(
-                        cnpj=cnpj,
-                        nome=nome,
-                        status="erro",
-                        erro=msg,
-                    )
-                )
-                continue
-
+            # Resolve certificado: unico ou o mais recente entre duplicados
             cert = certs_unicos.get(cnpj)
-            if not cert:
-                msg = f"Nao existe certificado .pfx valido para o CNPJ {cnpj}."
+            if cert is None and cnpj in duplicados:
+                candidatos = duplicados[cnpj]
+                cert = _escolher_cert_mais_recente(candidatos)
+                nomes_dup = ", ".join(c.arquivo.name for c in candidatos)
+                log.warning(
+                    "[%s] CNPJ possui %d .pfx duplicados (%s). "
+                    "Usando o mais recente: %s (val. %s).",
+                    cnpj, len(candidatos), nomes_dup,
+                    cert.arquivo.name, cert.valido_ate,
+                )
+            if cert is not None:
+                log.info(
+                    "[%s] Pareado: '%s' -> %s (CN do certificado: %s)",
+                    cnpj, nome, cert.arquivo.name, cert.cn,
+                )
+
+            if cert is None:
+                # Diagnostico: verifica se ha algum cert com erro para este CNPJ
+                msg = (
+                    f"Nenhum certificado .pfx encontrado para o CNPJ {cnpj} "
+                    f"em {params.pasta_certs}. "
+                    "Verifique se o arquivo existe e se o nome segue o padrao "
+                    "'NOME senha SENHA.pfx'."
+                )
                 log.error(msg)
                 resultados.append(
-                    ResultadoCNPJ(
-                        cnpj=cnpj,
-                        nome=nome,
-                        status="erro",
-                        erro=msg,
-                    )
+                    ResultadoCNPJ(cnpj=cnpj, nome=nome, status="erro", erro=msg)
                 )
                 continue
 
@@ -715,20 +1464,20 @@ def _importar_dominio_web(
             log.info("[%s] Sem notas — pula importacao no Dominio Web.", resultado.cnpj)
             continue
 
-        pastas_xml: list[Path] = []
-        dir_empresa = base_saida / resultado.cnpj
-        for sub in ("emitidas", "recebidas"):
-            d = dir_empresa / sub
-            if d.exists() and list(d.glob("*.xml")):
-                pastas_xml.append(d)
+        # Pasta nomeada com o nome do cliente (sem subpastas emitidas/recebidas)
+        dir_empresa = base_saida / _sanitizar_nome_pasta(resultado.nome)
+        xmls_ativos = [
+            p for p in dir_empresa.rglob("*.xml")
+            if "cancelad" not in str(p.parent.name).lower()
+        ] if dir_empresa.exists() else []
 
-        if not pastas_xml:
-            log.info("[%s] Nenhum XML encontrado para importar.", resultado.cnpj)
+        if not xmls_ativos:
+            log.info("[%s] Nenhum XML ativo para importar.", resultado.cnpj)
             continue
 
         try:
-            log.info("[%s] Iniciando importacao no Dominio Web...", resultado.cnpj)
-            ok = importer.importar(resultado.cnpj, resultado.nome, pastas_xml)
+            log.info("[%s] Iniciando importacao no Dominio Web (%d XMLs)...", resultado.cnpj, len(xmls_ativos))
+            ok = importer.importar(resultado.cnpj, resultado.nome, [dir_empresa])
             resultado.importado_dominio = ok
             if ok:
                 log.info("[%s] Importacao no Dominio Web concluida.", resultado.cnpj)

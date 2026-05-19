@@ -25,7 +25,14 @@ logger = logging.getLogger(__name__)
 
 # Imports do projeto
 import sys
-sys.path.insert(0, str(Path(__file__).parent.parent))
+
+# Suporte a bundle PyInstaller: config.py e módulos ficam ao lado do server.exe
+if getattr(sys, "frozen", False):
+    _app_dir = str(Path(sys.executable).parent)
+    if _app_dir not in sys.path:
+        sys.path.insert(0, _app_dir)
+else:
+    sys.path.insert(0, str(Path(__file__).parent.parent))
 
 try:
     from nfse_automacao import ExecucaoCancelada, executar_local, preparar_parametros
@@ -129,7 +136,8 @@ async def get_config():
                 ("PASTA_CERTS", "Pasta de certificados", "dir"),
                 ("PASTA_SAIDA", "Pasta de saida", "dir"),
                 ("CHROME_USER_DATA_DIR", "Perfil Chrome", "dir"),
-                ("CHROME_EXTENSION_DIR", "Pasta da extensao", "dir"),
+                ("CHROME_EXTENSION_DIR", "Pasta da extensao (opcional)", "dir"),
+                ("CHROME_EXTENSION_ID", "ID da extensao NFSe (auto-detectado se vazio)", "text"),
             ],
         },
         {
@@ -137,6 +145,7 @@ async def get_config():
             "fields": [
                 ("NFSE_LOGIN_URL", "URL de login", "text"),
                 ("NFSE_EMITIDAS_URL", "URL de notas emitidas", "text"),
+                ("NFSE_RECEBIDAS_URL", "URL de notas recebidas", "text"),
                 ("AUTOSELECT_CERTIFICATE_PATTERNS", "AutoSelectCertificateForUrls", "text"),
                 ("CHROME_CHANNEL", "Canal do browser", "text"),
                 ("CHROME_EXECUTABLE_PATH", "Executavel Chrome (opcional)", "path"),
@@ -184,7 +193,10 @@ async def get_config():
 @app.post("/config")
 async def set_config(body: dict):
     """Salva valores em config.py (com backup .bak)."""
-    config_path = Path(__file__).parent.parent / "config.py"
+    config_path = (
+        Path(sys.executable).parent if getattr(sys, "frozen", False)
+        else Path(__file__).parent.parent
+    ) / "config.py"
     if not config_path.exists():
         raise HTTPException(status_code=404, detail="config.py não encontrado")
 

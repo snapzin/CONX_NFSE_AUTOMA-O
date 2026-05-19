@@ -6,3 +6,4 @@ build/
 dist/
 js-app/node_modules/
 js-app/dist/
+electron/node_modules/

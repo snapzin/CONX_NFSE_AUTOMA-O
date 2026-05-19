@@ -57,17 +57,16 @@ function useToasts() {
 
 function App() {
   const [page, setPage] = useState('executar');
-  const [theme, setTheme] = useState('dark');
   const [status, setStatus] = useState('Pronto');
   const { toasts, push } = useToasts();
 
   useEffect(() => {
-    document.documentElement.dataset.theme = theme;
-  }, [theme]);
+    document.documentElement.dataset.theme = 'dark';
+  }, []);
 
   return (
     <div className="app-shell">
-      <Sidebar page={page} setPage={setPage} theme={theme} setTheme={setTheme} />
+      <Sidebar page={page} setPage={setPage} />
       <main className="main-area">
         <header className="topbar">
           <h1>{titles[page]}</h1>
@@ -103,7 +102,7 @@ function App() {
   );
 }
 
-function Sidebar({ page, setPage, theme, setTheme }) {
+function Sidebar({ page, setPage }) {
   return (
     <aside className="sidebar">
       <div className="sidebar-header">
@@ -124,28 +123,12 @@ function Sidebar({ page, setPage, theme, setTheme }) {
           </button>
         ))}
       </nav>
-      <div className="sidebar-footer">
-        <div className="theme-label">Tema</div>
-        <div className="theme-selector">
-          {['dark', 'light'].map((item) => (
-            <button
-              key={item}
-              type="button"
-              className={`theme-btn ${theme === item ? 'active' : ''}`}
-              onClick={() => setTheme(item)}
-            >
-              {item === 'dark' ? 'Escuro' : 'Claro'}
-            </button>
-          ))}
-        </div>
-      </div>
     </aside>
   );
 }
 
 function ExecutarPage({ api, toast, setStatus }) {
   const [usePrevMonth, setUsePrevMonth] = useState(true);
-  const [certStats, setCertStats] = useState(null);
   const [jobId, setJobId] = useState(null);
   const [jobStatus, setJobStatus] = useState('Pronto');
   const [logs, setLogs] = useState([]);
@@ -191,19 +174,6 @@ function ExecutarPage({ api, toast, setStatus }) {
     };
   }, [api, jobId, setStatus, toast]);
 
-  const countCerts = async () => {
-    try {
-      setStatus('Contando certificados');
-      const result = await api.get('/certificados?incluir_lista=false');
-      setCertStats(result);
-      setStatus('Pronto');
-      toast(`${result.validos} certificados validos encontrados.`, 'success');
-    } catch (error) {
-      setStatus('Erro ao contar certificados');
-      toast('Erro ao contar certificados.', 'error');
-    }
-  };
-
   const execute = async () => {
     try {
       setBusy(true);
@@ -237,8 +207,8 @@ function ExecutarPage({ api, toast, setStatus }) {
   const stats = [
     ['Status', jobStatus],
     ['Periodo', usePrevMonth ? 'Mes anterior' : 'Manual'],
-    ['CNPJs', certStats ? String(certStats.cnpjsUnicos) : 'Todos'],
-    ['Certificados', certStats ? `${certStats.validos}/${certStats.total}` : '-'],
+    ['CNPJs', 'Todos'],
+    ['Ultimo', '-'],
   ];
 
   return (
@@ -269,9 +239,6 @@ function ExecutarPage({ api, toast, setStatus }) {
           Usar mes anterior automaticamente
         </label>
         <div className="form-actions">
-          <button className="btn-secondary" type="button" onClick={countCerts} disabled={busy}>
-            Contar certificados
-          </button>
           <button className="btn-primary" type="button" onClick={execute} disabled={busy}>
             Executar agora
           </button>

@@ -11,7 +11,11 @@
     "start": "electron .",
     "build": "npm run build:renderer && electron-builder"
   },
-  "keywords": ["nfse", "automacao", "certificado"],
+  "keywords": [
+    "nfse",
+    "automacao",
+    "certificado"
+  ],
   "author": "CONX Contabilidade",
   "license": "proprietary",
   "dependencies": {
@@ -22,7 +26,7 @@
   "devDependencies": {
     "@vitejs/plugin-react": "^4.3.0",
     "concurrently": "^8.2.0",
-    "electron": "^29.0.0",
+    "electron": "^29.4.6",
     "electron-builder": "^24.6.4",
     "vite": "^5.4.0",
     "wait-on": "^7.2.0"
@@ -33,14 +37,17 @@
     "files": [
       "main.js",
       "preload.js",
-      "renderer-dist/**/*",
-      "../api/**/*",
-      "../*.py",
-      "../config.py"
+      "splash.html",
+      "assets/**/*",
+      "renderer-dist/**/*"
     ],
-    "directories": {
-      "buildResources": "assets"
-    },
+    "extraResources": [
+      {
+        "from": "../dist/server",
+        "to": "backend",
+        "filter": ["**/*"]
+      }
+    ],
     "win": {
       "target": [
         {
@@ -48,13 +55,15 @@
           "arch": ["x64"]
         }
       ],
-      "icon": "assets/icon.ico"
+      "requestedExecutionLevel": "requireAdministrator"
     },
     "nsis": {
       "oneClick": false,
+      "perMachine": false,
       "allowToChangeInstallationDirectory": true,
       "createDesktopShortcut": true,
-      "createStartMenuShortcut": true
+      "createStartMenuShortcut": true,
+      "shortcutName": "NFSe Automacao"
     }
   }
 }

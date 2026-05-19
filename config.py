@@ -3,11 +3,19 @@
 # =============================================================================
 
 # CAMINHOS LOCAIS
-XLSX_PATH = r"G:\Meu Drive\Automações\NFSE\clientes.xlsx"
+XLSX_PATH = r"clientes.xlsx"
 PASTA_CERTS = r"G:\Meu Drive\CONX\CERTIFICADO DIGITAL CLIENTES"
-PASTA_SAIDA = r"G:\Meu Drive\Automações\NFSE\Downloads"
-CHROME_USER_DATA_DIR = r"G:\Meu Drive\Automações\NFSE\chrome-profile"
-CHROME_EXTENSION_DIR = ""
+PASTA_SAIDA = r"C:\DOMINIO WEB\NFSe"
+CHROME_USER_DATA_DIR = r"C:\Users\conxc\AppData\Local\Google\Chrome NFSe Automacao"
+# Perfil dedicado para automacao — Chrome bloqueia Playwright em User Data padrao
+# (mensagem: "DevTools remote debugging requires a non-default data directory").
+# A extensao NFSe e carregada via --load-extension a partir do Profile 1, entao
+# funciona igualzinho. O auto-select de certificado funciona via politica HKCU.
+CHROME_PROFILE_DIRECTORY = ""
+CHROME_EXTENSION_DIR = r"C:\Users\conxc\AppData\Local\Google\Chrome\User Data\Profile 1\Extensions\enehmclajcndmgefbmjhecccoegbdgea\2.8.6.21_0"
+# ID da extensão "Baixar NFSe" no Chrome — deixe vazio para auto-detectar
+# Para encontrar: chrome://extensions → ative "Modo do desenvolvedor" → copie o ID
+CHROME_EXTENSION_ID = "enehmclajcndmgefbmjhecccoegbdgea"
 
 # PORTAL NFSE / PLAYWRIGHT
 NFSE_LOGIN_URL = "https://www.nfse.gov.br/EmissorNacional/Login?ReturnUrl=%2fEmissorNacional"
@@ -15,7 +23,7 @@ NFSE_EMITIDAS_URL = "https://www.nfse.gov.br/EmissorNacional/Notas/Emitidas"
 NFSE_RECEBIDAS_URL = "https://www.nfse.gov.br/EmissorNacional/Notas/Recebidas"
 AUTOSELECT_CERTIFICATE_PATTERNS = "https://www.nfse.gov.br/*"
 CHROME_EXECUTABLE_PATH = ""
-CHROME_CHANNEL = "chromium"
+CHROME_CHANNEL = "chrome"
 
 PLAYWRIGHT_HEADLESS = False
 PLAYWRIGHT_TIMEOUT_MS = 60000
@@ -46,7 +54,7 @@ DOMINIO_WEB_URL = "https://www.dominioweb.com.br/"
 # Módulo a selecionar após login (ex: "Escrita Fiscal")
 DOMINIO_WEB_MODULO = "Escrita Fiscal"
 # Se True, executa a importação no Domínio Web após baixar as notas
-DOMINIO_WEB_IMPORTAR = True
+DOMINIO_WEB_IMPORTAR = False
 # Credenciais das empresas no Domínio Web: mapeamento CNPJ -> {"usuario": "...", "senha": "..."}
 # Deixe vazio para pedir via popup a cada execução
 DOMINIO_WEB_CREDENCIAIS: dict = {}

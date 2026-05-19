@@ -7,6 +7,16 @@ Layout:
 """
 from __future__ import annotations
 
+import sys
+from pathlib import Path as _Path
+
+# Quando empacotado pelo PyInstaller, garante que config.py
+# seja lido da pasta do exe (não do bundle interno).
+if getattr(sys, "frozen", False):
+    _app_dir = str(_Path(sys.executable).parent)
+    if _app_dir not in sys.path:
+        sys.path.insert(0, _app_dir)
+
 import json
 import logging
 import os
@@ -24,7 +34,6 @@ import tkinter as tk
 import customtkinter as ctk
 from tkcalendar import DateEntry
 
-from cert_reader import indexar_certificados_por_cnpj, listar_certificados
 from nfse_automacao import ExecucaoCancelada, executar
 from ui_widgets import (
     AnimatedSidebarButton,
@@ -452,8 +461,8 @@ class NFSEGuiApp(ctk.CTk):
         chk_kw = dict(
             font=ctk.CTkFont(family=FONT, size=12),
             text_color=P.text_secondary,
-            progress_color=P.accent_light,
-            fg_color="transparent",
+            checkmark_color=P.accent_light,
+            fg_color=P.accent,
         )
 
         # Notificações por e-mail
@@ -530,37 +539,33 @@ class NFSEGuiApp(ctk.CTk):
             corner_radius=8, height=32,
         )
         ctk.CTkButton(
-            card, text="Contar certificados",
-            command=self._on_count_certs, **btn_kw,
-        ).grid(row=9, column=0, sticky="ew", padx=16, pady=3)
-        ctk.CTkButton(
             card, text="Abrir pasta de saída",
             command=self._open_output, **btn_kw,
-        ).grid(row=10, column=0, sticky="ew", padx=16, pady=3)
+        ).grid(row=9, column=0, sticky="ew", padx=16, pady=3)
         ctk.CTkButton(
             card, text="Limpar logs (Ctrl+L)",
             command=self._clear_logs, **btn_kw,
-        ).grid(row=11, column=0, sticky="ew", padx=16, pady=(3, 14))
+        ).grid(row=10, column=0, sticky="ew", padx=16, pady=(3, 14))
 
         # CNPJs
         sep4 = ctk.CTkFrame(card, fg_color=P.border, height=1)
-        sep4.grid(row=12, column=0, sticky="ew", padx=16, pady=(0, 8))
+        sep4.grid(row=11, column=0, sticky="ew", padx=16, pady=(0, 8))
         ctk.CTkLabel(
             card, text="CNPJs específicos (opcional)",
             font=ctk.CTkFont(family=FONT_BOLD, size=11, weight="bold"),
             text_color=P.text_secondary, anchor="w",
-        ).grid(row=13, column=0, sticky="w", padx=16, pady=(0, 4))
+        ).grid(row=12, column=0, sticky="w", padx=16, pady=(0, 4))
         ctk.CTkLabel(
             card, text="Deixe vazio para todos. Separe por vírgula ou linha.",
             font=ctk.CTkFont(family=FONT, size=10),
             text_color=P.text_secondary, anchor="w", wraplength=260, justify="left",
-        ).grid(row=14, column=0, sticky="w", padx=16)
+        ).grid(row=13, column=0, sticky="w", padx=16)
         self._cnpjs_box = ctk.CTkTextbox(
             card, height=72,
             font=ctk.CTkFont(family=FONT_MONO, size=11),
             fg_color=P.log_bg, border_color=P.border, border_width=1, corner_radius=8,
         )
-        self._cnpjs_box.grid(row=15, column=0, sticky="ew", padx=16, pady=(4, 16))
+        self._cnpjs_box.grid(row=14, column=0, sticky="ew", padx=16, pady=(4, 16))
 
     def _build_logs_col(self, parent: ctk.CTkFrame) -> None:
         card = ctk.CTkFrame(
@@ -1140,25 +1145,6 @@ class NFSEGuiApp(ctk.CTk):
         if bad:
             raise ValueError(f"CNPJ inválido: {', '.join(bad[:3])}")
         return result or None
-
-    def _on_count_certs(self) -> None:
-        if self.running:
-            return
-        threading.Thread(target=self._count_certs_worker, daemon=True).start()
-
-    def _count_certs_worker(self) -> None:
-        lg = logging.getLogger("nfse.gui")
-        try:
-            pasta = Path(str(getattr(config, "PASTA_CERTS", "")).strip())
-            if not pasta.exists():
-                raise FileNotFoundError(f"Pasta não encontrada: {pasta}")
-            certs = listar_certificados(pasta)
-            m, dup = indexar_certificados_por_cnpj(certs)
-            ok  = sum(1 for c in certs if not c.erro)
-            cnpj = sum(1 for c in certs if not c.erro and len(c.documento) == 14)
-            lg.info("Certificados: total=%d ok=%d e-CNPJ=%d duplicados=%d", len(certs), ok, cnpj, len(dup))
-        except Exception as exc:
-            lg.error("Falha ao contar certificados: %s", exc)
 
     def _open_output(self) -> None:
         pasta = Path(getattr(config, "PASTA_SAIDA", ""))
