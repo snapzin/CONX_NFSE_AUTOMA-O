@@ -38,15 +38,15 @@ const startPythonBackend = () => {
   return new Promise((resolve, reject) => {
     let command, args, cwd;
 
-    if (isProd) {
-      // Produção: server.exe standalone (PyInstaller) em resources/backend/
+    if (isProd && process.platform === 'win32') {
+      // Produção Windows: server.exe standalone (PyInstaller) em resources/backend/
       command = path.join(process.resourcesPath, 'backend', 'server.exe');
       args = [];
       cwd = path.join(process.resourcesPath, 'backend');
     } else {
-      // Desenvolvimento: python + script
+      // Desenvolvimento ou macOS: usa Python do projeto
       command = getPythonPath();
-      args = [path.join(__dirname, '..', 'api', 'server.py')];
+      args = [path.join(__dirname, '..', 'api_server.py')];
       cwd = path.join(__dirname, '..');
     }
 
@@ -205,9 +205,13 @@ app.on('ready', async () => {
       splashWindow.loadURL('data:text/html,<h1>Iniciando...</h1>');
     }
 
-    // Inicia backend
+    // Inicia backend (nao crasha o app se falhar — apenas loga)
     console.log('[Main] Iniciando backend Python...');
-    await startPythonBackend();
+    try {
+      await startPythonBackend();
+    } catch (error) {
+      console.warn('[Main] Backend nao respondeu (continuando sem ele):', error.message);
+    }
 
     // Fecha splash e abre main
     if (!splashWindow.isDestroyed()) {

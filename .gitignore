@@ -1,9 +1,45 @@
+# Ambientes virtuais
 .venv/
+.venv_mac/
+
+# Python cache
 __pycache__/
 *.pyc
-.claude/
+*.pyo
+
+# Configurações locais com dados reais (senhas, e-mails, caminhos pessoais)
+config.py
+config.py.bak
+config_mac.py
+runtime_settings.json
+runtime_settings.py
+
+# Dados de clientes e certificados
+clientes.xlsx
+*.xlsx
+*.pfx
+*.p12
+
+# Builds e dist
 build/
 dist/
+dist_build/
+*.spec.bak
+
+# Electron
+electron/node_modules/
+electron/renderer-dist/
+
+# Node legado
 js-app/node_modules/
 js-app/dist/
-electron/node_modules/
+
+# Ferramentas e logs
+.claude/
+nfse.log
+*.log
+chrome-profile/
+downloads/
+
+# macOS
+.DS_Store

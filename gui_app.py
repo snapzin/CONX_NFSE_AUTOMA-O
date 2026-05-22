@@ -55,9 +55,14 @@ STATS_PATH  = Path(__file__).resolve().with_name("runtime_settings.json")
 ctk.set_appearance_mode("dark")
 ctk.set_default_color_theme("dark-blue")
 
-FONT       = "Bahnschrift"
-FONT_BOLD  = "Bahnschrift SemiBold"
-FONT_MONO  = "Consolas"
+if sys.platform == "darwin":
+    FONT      = "Helvetica Neue"
+    FONT_BOLD = "Helvetica Neue Bold"
+    FONT_MONO = "Menlo"
+else:
+    FONT      = "Bahnschrift"
+    FONT_BOLD = "Bahnschrift SemiBold"
+    FONT_MONO = "Consolas"
 
 # ── Paleta preto / branco / azul escuro ──────────────────────────────────────
 @dataclass(frozen=True)

@@ -29,8 +29,8 @@ const api = {
   },
 };
 
-// Senha do modo Desenvolvedor. Para alterar, edite esta linha.
-const DEV_PASSWORD = '190780';
+// Senha do modo Desenvolvedor. Altere antes de usar em producao.
+const DEV_PASSWORD = 'dev@2024';
 
 const Icon = {
   Play: () => (
