@@ -22,12 +22,15 @@ const getPythonPath = () => {
   }
 
   const projectRoot = getProjectRoot();
-  const venvPython = process.platform === 'win32'
-    ? path.join(projectRoot, '.venv', 'Scripts', 'python.exe')
-    : path.join(projectRoot, '.venv', 'bin', 'python');
+  const candidates = process.platform === 'win32'
+    ? [path.join(projectRoot, '.venv', 'Scripts', 'python.exe')]
+    : [
+        path.join(projectRoot, '.venv_mac', 'bin', 'python'),
+        path.join(projectRoot, '.venv', 'bin', 'python'),
+      ];
 
-  if (fs.existsSync(venvPython)) {
-    return venvPython;
+  for (const candidate of candidates) {
+    if (fs.existsSync(candidate)) return candidate;
   }
 
   return process.platform === 'win32' ? 'python' : 'python3';
