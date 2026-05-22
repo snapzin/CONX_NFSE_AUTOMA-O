@@ -41,5 +41,11 @@ nfse.log
 chrome-profile/
 downloads/
 
+# Documentação interna (configuração e seletores)
+GUIA_SELETORES.md
+SETUP_CHECKLIST.md
+ELECTRON_README.md
+CLAUDE.md
+
 # macOS
 .DS_Store

@@ -1,151 +1,61 @@
-# 🚀 NFSe Automacao v2.3
+# NFSe Automação
 
-Automação completa de downloads de Notas Fiscais Eletrônicas via portal NFSe com UI animada em customtkinter.
-
-## ⚡ Quick Start
-
-### 1. Executar (interface gráfica)
-```bash
-dist/NFSE_Automacao.exe
-```
-
-### 2. Configurar (primeira vez)
-Abra `SETUP_CHECKLIST.md` e siga o guia passo-a-passo.
-
-### 3. Usar
-- Escolha período (ou "mês anterior")
-- Clique "Executar agora"
-- Acompanhe os logs
-- Arquivos salvos em `Downloads/`
-
-## 📁 Estrutura
-
-```
-NFSe_Automacao/
-├── dist/
-│   └── NFSE_Automacao.exe          ← Execute isto!
-├── config.py                        ← Configure seletores aqui
-├── SETUP_CHECKLIST.md              ← Guia de setup
-├── CLAUDE.md                        ← Documentação técnica
-├── gui_app.py                       ← Interface gráfica
-├── ui_widgets.py                    ← Widgets animados
-├── ui_animations.py                 ← Motor de animações
-├── nfse_automacao.py               ← Motor Playwright
-├── cert_reader.py                   ← Leitor de certificados
-├── discover_selectors.py            ← Ajudante para achar seletores
-└── clientes.xlsx                    ← Lista de CNPJs (opcional)
-```
-
-## ✨ Features
-
-- ✅ **UI Animada**: splash, cards, botões com glow, toasts, spinners
-- ✅ **Login automático**: certificado digital com auto-seleção
-- ✅ **Detecção de notas**: regex + seletores CSS customizáveis
-- ✅ **Download via extensão**: atalho teclado ou botão
-- ✅ **Logs em tempo real**: painel filtrado e pesquisável
-- ✅ **Múltiplos certs**: processados em paralelo ou sequencial
-- ✅ **Configuração visual**: editor integrado de config.py
-- ✅ **Relatório de certs**: conta total, válidos, com erro
-
-## 🔧 Configuração
-
-### Obrigatório (primeiro uso)
-1. Abra `SETUP_CHECKLIST.md`
-2. Execute `python discover_selectors.py`
-3. Inspecione elementos no portal (F12 DevTools)
-4. Copie seletores CSS em `config.py`
-
-### Caminhos (padrão já configurado)
-- **Certificados**: `G:\Meu Drive\CONX\CERTIFICADO DIGITAL CLIENTES`
-- **Saída**: `G:\Meu Drive\Automações\NFSE\Downloads`
-- **Perfil Chrome**: `G:\Meu Drive\Automações\NFSE\chrome-profile`
-
-### Portal
-- **URL Login**: `https://www.nfse.gov.br/EmissorNacional/Login`
-- **URL Notas**: `https://www.nfse.gov.br/EmissorNacional`
-
-## 🎯 Fluxo (O que acontece ao executar)
-
-```
-1. Lê todos os certificados .pfx (paralelo)
-   ↓
-2. Abre navegador via Playwright
-   ↓
-3. Faz login automático (certificado digital)
-   ↓
-4. Navega para "Notas Emitidas"
-   ↓
-5. Aplica filtro de período (via seletores CSS)
-   ↓
-6. Detecta quantas notas (conta ou regex)
-   ↓
-7. Se houver notas: aciona extensão (atalho teclado)
-   ↓
-8. Aguarda arquivo .zip na pasta Downloads/{CNPJ}/
-   ↓
-9. Repete para próximo CNPJ
-   ↓
-10. Envia relatório por e-mail (opcional, via Zoho SMTP)
-```
-
-## 📊 Logs
-
-- **GUI**: painel integrado com filtro por nível + busca
-- **Arquivo**: configure em `nfse_automacao.py` se precisar
-
-## ⚙️ Tech Stack
-
-- **Frontend**: customtkinter (dark theme, animações nativas)
-- **Browser**: Playwright + Chromium
-- **Certs**: cryptography (PKCS#12 parsing)
-- **Excel**: openpyxl (leitura de clientes)
-- **Email**: smtplib + Zoho SMTP
-
-## 🐛 Troubleshooting
-
-**"Nao foi possivel detectar notas"**
-→ Seletor CSS errado → revise em `discover_selectors.py`
-
-**"Extensao acionada, mas nenhum arquivo novo foi detectado"**
-→ Atalho errado ou extensão não respondeu → verifique em DevTools
-
-**"Timeout no login"**
-→ Aumentar `PLAYWRIGHT_LOGIN_TIMEOUT_S` em config.py
-
-Mais detalhes: veja `CLAUDE.md`
-
-## 📜 Licença
-
-Uso interno CONX Contabilidade.
+Solução desktop para automação de download de Notas Fiscais de Serviço Eletrônicas (NFSe) do portal nacional [nfse.gov.br](https://www.nfse.gov.br), desenvolvida para escritórios de contabilidade que gerenciam múltiplos CNPJs.
 
 ---
 
-**Versão**: 2.3 | **Status**: Production Ready ✓
+## O que faz
 
-## Interface JavaScript (Electron)
+O sistema acessa o portal NFSe de forma automatizada usando certificados digitais A1 (`.pfx`), aplica filtros de período, detecta e baixa as notas de cada cliente em sequência — sem intervenção manual em nenhuma etapa.
 
-Tambem existe uma versao da interface em JavaScript, mantendo o mesmo motor Python de automacao.
+**Fluxo de execução:**
 
-### Como executar
+1. Lê todos os certificados digitais da pasta configurada
+2. Abre o navegador via Playwright e faz login com cada certificado
+3. Aplica o filtro de período (mês anterior ou intervalo personalizado)
+4. Detecta a existência de notas emitidas
+5. Aciona o download via extensão do Chrome
+6. Aguarda e organiza os arquivos por CNPJ
+7. Repete para todos os clientes em sequência
+8. Envia relatório por e-mail ao final (opcional)
 
-```bash
-cd js-app
-npm install
-npm run start
-```
+---
 
-### Arquitetura
+## Interface
 
-- `js-app/` -> app desktop Electron (UI em HTML/CSS/JS)
-- `nfse_bridge.py` -> ponte entre a UI JS e a automacao Python
-- `nfse_automacao.py` -> motor principal de execucao (Playwright + certificados)
+App desktop cross-platform (Windows e macOS) com UI construída em **Electron + React + Framer Motion**.
 
-## Build do executavel (fixo)
+- Painel de execução com progresso em tempo real por cliente
+- Cards de status (total processado, erros, período)
+- Logs técnicos com filtro por nível e busca
+- Gerenciamento de lista de clientes (CNPJ/CPF + nome)
+- Editor de configurações integrado
+- Toasts de feedback, animações de transição entre páginas
 
-Para gerar o pacote sem erro de `_internal\\_internal`, use sempre:
+---
 
-```powershell
-.\build_nfse.ps1
-```
+## Stack
 
-O script faz limpeza, compila com `NFSE_Automacao.spec` e valida a estrutura final em `dist\\NFSE_Automacao`.
+| Camada | Tecnologia |
+|---|---|
+| Interface | Electron + React 18 + Framer Motion |
+| Build frontend | Vite |
+| Backend local | FastAPI + Python |
+| Automação web | Playwright (Chromium) |
+| Certificados | cryptography (PKCS#12) |
+| Planilhas | openpyxl |
+| Empacotamento | electron-builder (NSIS / DMG) + PyInstaller |
+
+---
+
+## Status
+
+Produto em uso ativo na **CONX Contabilidade**.
+
+Esta automação é **proprietária** — desenvolvida exclusivamente para uso interno ou mediante contratação. O código está disponível aqui como portfólio técnico.
+
+> Para licenciamento ou interesse em uso: entre em contato.
+
+---
+
+*v2.3 — 2025*
