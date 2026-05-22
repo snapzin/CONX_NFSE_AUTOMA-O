@@ -62,6 +62,17 @@ except ImportError:
         PASTA_SAIDA = ""
         NFSE_LOGIN_URL = ""
 
+try:
+    from api.license import activate as license_activate, check_license, load_key
+except ImportError:
+    try:
+        from license import activate as license_activate, check_license, load_key
+    except ImportError:
+        logger.warning("Módulo de licença não encontrado — execução liberada sem validação")
+        def license_activate(key): return True, "ok"
+        def check_license(): return True, "ok"
+        def load_key(): return "dev"
+
 # =============================================================================
 # Job management
 # =============================================================================
@@ -367,9 +378,37 @@ async def salvar_clientes(payload: dict):
         raise HTTPException(status_code=500, detail=str(e))
 
 
+@app.get("/license/status")
+async def license_status():
+    """Retorna estado da licença atual."""
+    key = load_key()
+    if not key:
+        return {"licensed": False, "message": "Nenhuma licença ativada.", "key_hint": None}
+    valid, message = check_license()
+    hint = (key[:8] + "..." + key[-4:]) if len(key) > 12 else key
+    return {"licensed": valid, "message": message, "key_hint": hint}
+
+
+@app.post("/license/activate")
+async def license_activate_endpoint(body: dict):
+    """Ativa uma chave de licença."""
+    key = str(body.get("key", "")).strip()
+    if not key:
+        raise HTTPException(status_code=400, detail="Chave não informada.")
+    valid, message = license_activate(key)
+    if not valid:
+        raise HTTPException(status_code=402, detail=message)
+    return {"ok": True, "message": message}
+
+
 @app.post("/executar")
 async def start_execution(body: dict):
     """Inicia execução assíncrona. Retorna { jobId }."""
+    # ── Verificação de licença ────────────────────────────────────────────────
+    licensed, lic_msg = check_license()
+    if not licensed:
+        raise HTTPException(status_code=402, detail=lic_msg)
+
     try:
         data_inicio = body.get("dataInicio")
         data_fim = body.get("dataFim")

@@ -123,7 +123,20 @@ function App() {
   const [showPwdModal, setShowPwdModal] = useState(false);
   const [sharedJobLogs, setSharedJobLogs] = useState([]);
   const [sharedJobStatus, setSharedJobStatus] = useState('Pronto');
+  const [license, setLicense] = useState({ licensed: null, message: '', key_hint: null });
+  const [showActivateModal, setShowActivateModal] = useState(false);
   const { toasts, push } = useToasts();
+
+  const refreshLicense = useCallback(async () => {
+    try {
+      const result = await api.get('/license/status');
+      setLicense(result);
+    } catch {
+      setLicense({ licensed: false, message: 'Servidor indisponível.', key_hint: null });
+    }
+  }, []);
+
+  useEffect(() => { refreshLicense(); }, [refreshLicense]);
 
   useEffect(() => {
     document.documentElement.dataset.theme = 'dark';
@@ -183,6 +196,8 @@ function App() {
                   setStatus={setStatus}
                   onLogsUpdate={setSharedJobLogs}
                   onJobStatusUpdate={setSharedJobStatus}
+                  license={license}
+                  onActivate={() => setShowActivateModal(true)}
                 />
               )}
               {page === 'clientes' && <ClientesPage api={api} toast={push} />}
@@ -203,6 +218,18 @@ function App() {
         <footer className="statusbar">{status === 'Pronto' ? 'Pronto para executar.' : status}</footer>
       </main>
       <ToastViewport toasts={toasts} />
+      {showActivateModal && (
+        <ActivationModal
+          api={api}
+          onSuccess={() => {
+            setShowActivateModal(false);
+            refreshLicense();
+            push('Licença ativada com sucesso!', 'success');
+          }}
+          onCancel={() => setShowActivateModal(false)}
+          toast={push}
+        />
+      )}
       {showPwdModal && (
         <PasswordModal
           onSubmit={handlePwdSubmit}
@@ -245,6 +272,83 @@ function PasswordModal({ onSubmit, onCancel }) {
           <button type="submit" className="btn-primary">Entrar</button>
         </div>
       </form>
+    </div>
+  );
+}
+
+function ActivationModal({ api, onSuccess, onCancel, toast }) {
+  const [key, setKey] = useState('');
+  const [loading, setLoading] = useState(false);
+  const inputRef = useRef(null);
+
+  useEffect(() => { inputRef.current?.focus(); }, []);
+
+  const formatKey = (value) => {
+    const clean = value.toUpperCase().replace(/[^A-Z0-9]/g, '');
+    const parts = clean.match(/.{1,4}/g) || [];
+    return parts.slice(0, 4).join('-');
+  };
+
+  const submit = async (e) => {
+    e?.preventDefault?.();
+    if (!key.trim()) return;
+    setLoading(true);
+    try {
+      await api.post('/license/activate', { key: key.replace(/-/g, '') });
+      onSuccess();
+    } catch (err) {
+      const msg = err?.message?.replace(/^HTTP \d+: /, '') || 'Chave inválida.';
+      toast(msg, 'error');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  return (
+    <div className="modal-backdrop" onClick={onCancel}>
+      <form className="modal-box" onClick={(e) => e.stopPropagation()} onSubmit={submit}>
+        <div className="modal-icon"><Icon.Lock /></div>
+        <h3>Ativar licença</h3>
+        <p>Insira a chave de ativação fornecida pela CONX Contabilidade.</p>
+        <input
+          ref={inputRef}
+          type="text"
+          value={key}
+          onChange={(e) => setKey(formatKey(e.target.value))}
+          placeholder="NFSE-XXXX-XXXX-XXXX"
+          className="modal-input"
+          maxLength={19}
+          spellCheck={false}
+          autoComplete="off"
+        />
+        <div className="modal-actions">
+          <button type="button" className="btn-secondary" onClick={onCancel} disabled={loading}>Cancelar</button>
+          <button type="submit" className="btn-primary" disabled={loading || key.length < 4}>
+            {loading ? <Icon.Spinner /> : null} Ativar
+          </button>
+        </div>
+        <p style={{ marginTop: 16, fontSize: 11, color: 'var(--text-2)' }}>
+          Para adquirir uma licença: conxcontabil@gmail.com
+        </p>
+      </form>
+    </div>
+  );
+}
+
+function LicenseBanner({ license, onActivate }) {
+  if (license.licensed === null) return null;
+  if (license.licensed === true) return null;
+
+  return (
+    <div className="license-banner">
+      <div className="license-banner-icon"><Icon.Lock /></div>
+      <div className="license-banner-text">
+        <strong>Licença não ativada</strong>
+        <span>{license.message}</span>
+      </div>
+      <button className="btn-primary" type="button" onClick={onActivate}>
+        Ativar agora
+      </button>
     </div>
   );
 }
@@ -328,7 +432,7 @@ function parseProgress(logs) {
   return { total, clients };
 }
 
-function ExecutarPage({ api, toast, setStatus, onLogsUpdate, onJobStatusUpdate }) {
+function ExecutarPage({ api, toast, setStatus, onLogsUpdate, onJobStatusUpdate, license, onActivate }) {
   const [usePrevMonth, setUsePrevMonth] = useState(true);
   const [jobId, setJobId] = useState(null);
   const [jobStatus, setJobStatus] = useState('Pronto');
@@ -458,8 +562,11 @@ function ExecutarPage({ api, toast, setStatus, onLogsUpdate, onJobStatusUpdate }
     ['Erros', String(errCount)],
   ];
 
+  const isLicensed = license?.licensed === true;
+
   return (
     <div className="page-inner">
+      <LicenseBanner license={license} onActivate={onActivate} />
       <div className="stats-row">
         {stats.map(([label, value], index) => (
           <motion.div
@@ -510,9 +617,14 @@ function ExecutarPage({ api, toast, setStatus, onLogsUpdate, onJobStatusUpdate }
         )}
 
         <div className="form-actions">
-          <button className="btn-primary" type="button" onClick={execute} disabled={busy}>
+          <button className="btn-primary" type="button" onClick={execute} disabled={busy || !isLicensed}>
             Executar agora
           </button>
+          {!isLicensed && license?.licensed === false && (
+            <span className="license-inline-hint" onClick={onActivate}>
+              <Icon.Lock /> Licença necessária — clique para ativar
+            </span>
+          )}
           {busy && (
             <button className="btn-danger" type="button" onClick={cancel}>
               Cancelar

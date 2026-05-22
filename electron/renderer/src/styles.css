@@ -1063,6 +1063,63 @@ input::placeholder {
   text-align: right;
 }
 
+/* ─── License banner & hint ──────────────────── */
+.license-banner {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  padding: 14px 18px;
+  margin-bottom: 18px;
+  background: rgba(248, 113, 113, 0.05);
+  border: 1px solid rgba(248, 113, 113, 0.25);
+  border-left: 3px solid var(--danger);
+  border-radius: var(--radius);
+}
+
+.license-banner-icon {
+  display: flex;
+  align-items: center;
+  color: var(--danger);
+  opacity: 0.8;
+  flex-shrink: 0;
+}
+
+.license-banner-text {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.license-banner-text strong {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text-1);
+  letter-spacing: 0.04em;
+}
+
+.license-banner-text span {
+  font-size: 11.5px;
+  color: var(--text-2);
+}
+
+.license-inline-hint {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 11.5px;
+  color: var(--danger);
+  opacity: 0.75;
+  cursor: pointer;
+  transition: opacity 140ms;
+  letter-spacing: 0.02em;
+  padding: 4px 0;
+}
+
+.license-inline-hint:hover {
+  opacity: 1;
+}
+
 /* ─── Responsive ──────────────────────────────── */
 @media (max-width: 900px) {
   .sidebar { width: 180px; flex-basis: 180px; }
