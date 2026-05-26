@@ -32,7 +32,15 @@ from typing import Optional
 from playwright.sync_api import TimeoutError as PlaywrightTimeoutError
 from playwright.sync_api import Playwright, Page, sync_playwright
 
-import config
+from config_defaults import apply_defaults, ensure_config_file
+
+try:
+    ensure_config_file()
+    import config
+except ImportError:
+    ensure_config_file()
+    import config
+apply_defaults(config)
 from cert_reader import CertificadoInfo, indexar_certificados_por_cnpj, listar_certificados
 
 

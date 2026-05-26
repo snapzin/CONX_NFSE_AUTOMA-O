@@ -34,7 +34,7 @@ hiddenimports += [
     "openpyxl", "openpyxl.styles", "openpyxl.utils",
     "h11", "h11._readers", "h11._writers",
     "email.mime.multipart", "email.mime.text",
-    "nfse_automacao", "cert_reader", "dominio_importer",
+    "nfse_automacao", "cert_reader", "dominio_importer", "config_defaults",
     "runtime_settings",
 ]
 

@@ -5,6 +5,7 @@ Expõe endpoints REST para o frontend Electron.
 import asyncio
 import logging
 import re
+import sys
 import threading
 import uuid
 from collections import deque
@@ -23,9 +24,6 @@ import uvicorn
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
-# Imports do projeto
-import sys
-
 # Suporte a bundle PyInstaller: config.py e módulos ficam ao lado do server.exe
 if getattr(sys, "frozen", False):
     _app_dir = str(Path(sys.executable).parent)
@@ -35,14 +33,28 @@ else:
     sys.path.insert(0, str(Path(__file__).parent.parent))
 
 try:
-    from nfse_automacao import ExecucaoCancelada, executar_local, preparar_parametros
+    from config_defaults import apply_defaults, default_values, ensure_config_file
 except ImportError as e:
-    logger.warning(f"Falha ao importar nfse_automacao: {e}. Usando fallback.")
-    ExecucaoCancelada = RuntimeError
-    def executar_local(*args, **kwargs):
-        return []
-    def preparar_parametros(*args, **kwargs):
-        return {}
+    logger.warning(f"Falha ao importar config_defaults: {e}")
+    apply_defaults = None
+    default_values = lambda: {}
+    ensure_config_file = lambda: Path(__file__).parent.parent / "config.py"
+
+try:
+    ensure_config_file()
+except Exception as e:
+    logger.warning("Falha ao criar config.py padrao: %s", e)
+
+try:
+    import config
+    if apply_defaults:
+        apply_defaults(config)
+except ImportError:
+    logger.warning("Falha ao importar config")
+    class config:
+        pass
+    if apply_defaults:
+        apply_defaults(config, create_dirs=False)
 
 try:
     from cert_reader import listar_certificados, indexar_certificados_por_cnpj
@@ -54,13 +66,14 @@ except ImportError as e:
         return {}, {}
 
 try:
-    import config
-except ImportError:
-    logger.warning("Falha ao importar config")
-    class config:
-        PASTA_CERTS = ""
-        PASTA_SAIDA = ""
-        NFSE_LOGIN_URL = ""
+    from nfse_automacao import ExecucaoCancelada, executar_local, preparar_parametros
+except ImportError as e:
+    logger.warning(f"Falha ao importar nfse_automacao: {e}. Usando fallback.")
+    ExecucaoCancelada = RuntimeError
+    def executar_local(*args, **kwargs):
+        return []
+    def preparar_parametros(*args, **kwargs):
+        return {}
 
 try:
     from api.license import activate as license_activate, check_license, load_key
@@ -209,15 +222,23 @@ async def set_config(body: dict):
         else Path(__file__).parent.parent
     ) / "config.py"
     if not config_path.exists():
+        try:
+            config_path = ensure_config_file(config_path.parent)
+        except Exception as e:
+            raise HTTPException(status_code=500, detail=f"Falha ao criar config.py: {e}")
+    if not config_path.exists():
         raise HTTPException(status_code=404, detail="config.py não encontrado")
 
     try:
         original = config_path.read_text(encoding="utf-8")
         novo = original
+        defaults = default_values()
 
         for chave, valor in body.items():
             if not hasattr(config, chave):
                 continue
+            if str(valor).strip() == "" and defaults.get(chave) not in ("", None):
+                valor = defaults[chave]
             atual = getattr(config, chave)
             if isinstance(atual, bool):
                 literal = "True" if str(valor).lower() in ("true", "1", "sim") else "False"
@@ -231,7 +252,13 @@ async def set_config(body: dict):
                 rf"^(?P<prefix>{re.escape(chave)}\s*=\s*)(?P<value>.+?)(?P<suffix>\s*(?:#.*)?)$",
                 re.MULTILINE,
             )
-            novo = pattern.sub(lambda m: f"{m.group('prefix')}{literal}{m.group('suffix')}", novo, count=1)
+            novo, count = pattern.subn(
+                lambda m: f"{m.group('prefix')}{literal}{m.group('suffix')}",
+                novo,
+                count=1,
+            )
+            if count == 0:
+                novo = f"{novo.rstrip()}\n{chave} = {literal}\n"
 
         backup = config_path.with_suffix(".py.bak")
         backup.write_text(original, encoding="utf-8")
@@ -239,6 +266,8 @@ async def set_config(body: dict):
 
         import importlib
         importlib.reload(config)
+        if apply_defaults:
+            apply_defaults(config)
 
         return {"ok": True, "backupPath": str(backup)}
     except Exception as e:

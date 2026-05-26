@@ -5,20 +5,21 @@
 # =============================================================================
 
 # CAMINHOS LOCAIS
+# Padrao: caminhos relativos a pasta do projeto.
 XLSX_PATH = r"clientes.xlsx"
-PASTA_CERTS  = r"C:\Caminho\Para\Certificados"          # pasta com os .pfx
-PASTA_SAIDA  = r"C:\Caminho\Para\Downloads"             # onde salvar os XMLs
-CHROME_USER_DATA_DIR = r"C:\Users\SEU_USUARIO\AppData\Local\Google\Chrome NFSe Automacao"
+PASTA_CERTS  = r"Certificados"                          # pasta com os .pfx
+PASTA_SAIDA  = r"Downloads"                             # onde salvar os XMLs
+CHROME_USER_DATA_DIR = r"chrome-profile"                # perfil isolado do Chrome
 CHROME_PROFILE_DIRECTORY = ""
-CHROME_EXTENSION_DIR = r""                              # deixe vazio para auto-detectar
-CHROME_EXTENSION_ID  = ""                               # deixe vazio para auto-detectar
+CHROME_EXTENSION_DIR = r""                              # opcional: deixe vazio para auto-detectar
+CHROME_EXTENSION_ID  = ""                               # opcional: deixe vazio para auto-detectar
 
 # PORTAL NFSE / PLAYWRIGHT
 NFSE_LOGIN_URL      = "https://www.nfse.gov.br/EmissorNacional/Login?ReturnUrl=%2fEmissorNacional"
 NFSE_EMITIDAS_URL   = "https://www.nfse.gov.br/EmissorNacional/Notas/Emitidas"
 NFSE_RECEBIDAS_URL  = "https://www.nfse.gov.br/EmissorNacional/Notas/Recebidas"
 AUTOSELECT_CERTIFICATE_PATTERNS = "https://www.nfse.gov.br/*"
-CHROME_EXECUTABLE_PATH = ""
+CHROME_EXECUTABLE_PATH = ""                             # opcional: Chrome padrao se vazio
 CHROME_CHANNEL = "chrome"
 
 PLAYWRIGHT_HEADLESS           = False
@@ -54,10 +55,10 @@ DOMINIO_WEB_CREDENCIAIS: dict = {}
 # }
 
 # ZOHO MAIL / SMTP (opcional — para envio de relatório por e-mail)
-ZOHO_SMTP_HOST     = "smtppro.zoho.com"
+ZOHO_SMTP_HOST     = ""
 ZOHO_SMTP_PORT     = 587
 ZOHO_SMTP_USE_TLS  = True
-ZOHO_SMTP_USER     = "seu_email@seudominio.com.br"
-ZOHO_SMTP_PASSWORD = "sua_senha_aqui"
-ZOHO_EMAIL_FROM    = "seu_email@seudominio.com.br"
-ZOHO_EMAIL_TO      = "destino@seudominio.com.br"
+ZOHO_SMTP_USER     = ""
+ZOHO_SMTP_PASSWORD = ""
+ZOHO_EMAIL_FROM    = ""
+ZOHO_EMAIL_TO      = ""

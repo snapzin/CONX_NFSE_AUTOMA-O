@@ -7,7 +7,7 @@
   "scripts": {
     "dev:renderer": "vite",
     "build:renderer": "vite build",
-    "dev": "concurrently \"npm run dev:renderer\" \"wait-on http://127.0.0.1:5173 && electron .\"",
+    "dev": "node dev-runner.js",
     "start": "electron .",
     "build": "npm run build:renderer && electron-builder"
   },

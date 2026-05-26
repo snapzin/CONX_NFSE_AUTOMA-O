@@ -80,11 +80,35 @@ if errorlevel 1 (
 )
 echo.
 
-cd /d "%~dp0electron"
+set "PROJECT_ROOT=%CD%"
+set "SOURCE_ELECTRON=%PROJECT_ROOT%\electron"
+set "RUNTIME_ROOT=%LOCALAPPDATA%\NFSE_Automacao"
+set "RUNTIME_ELECTRON=%RUNTIME_ROOT%\electron"
 
-if not exist "node_modules" (
-  echo Instalando dependencias do Electron/React...
-  call npm install
+if not exist "%RUNTIME_ROOT%" mkdir "%RUNTIME_ROOT%"
+
+echo Preparando aplicativo Electron em pasta local...
+robocopy "%SOURCE_ELECTRON%" "%RUNTIME_ELECTRON%" /MIR /XD node_modules node_modules_corrupt_* renderer-dist dist /XF *.log >nul
+set "ROBOCOPY_EXIT=%ERRORLEVEL%"
+if %ROBOCOPY_EXIT% GEQ 8 (
+  echo.
+  echo ERRO: Falha ao copiar arquivos do Electron para pasta local.
+  pause
+  exit /b 1
+)
+echo.
+
+cd /d "%RUNTIME_ELECTRON%"
+
+set "NPM_READY=1"
+if not exist "node_modules\vite\bin\vite.js" set "NPM_READY=0"
+if not exist "node_modules\electron\cli.js" set "NPM_READY=0"
+if not exist "node_modules\react\package.json" set "NPM_READY=0"
+if not exist "node_modules\framer-motion\package.json" set "NPM_READY=0"
+
+if "%NPM_READY%"=="0" (
+  echo Instalando/reparando dependencias do Electron/React...
+  call npm install --include=dev --no-audit --no-fund
   if errorlevel 1 (
     echo.
     echo ERRO: Falha ao instalar dependencias.
@@ -99,8 +123,9 @@ echo.
 
 REM Garante que Electron rode como app grafico, nao como Node.js
 set ELECTRON_RUN_AS_NODE=
+set "NFSE_PROJECT_ROOT=%PROJECT_ROOT%"
 
-call npm run dev
+call node dev-runner.js
 
 if errorlevel 1 (
   echo.

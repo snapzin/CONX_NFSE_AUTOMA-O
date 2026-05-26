@@ -1,4 +1,4 @@
-@echo off
+    @echo off
 setlocal enabledelayedexpansion
 title NFSe Automacao - Build EXE
 cd /d "%~dp0"

@@ -34,6 +34,7 @@ dist_build/
 
 # Electron
 electron/node_modules/
+electron/node_modules_corrupt_*/
 electron/renderer-dist/
 
 # Node legado

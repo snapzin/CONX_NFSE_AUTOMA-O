@@ -13,13 +13,15 @@ const API_URL = `http://127.0.0.1:${API_PORT}`;
 const isProd = app.isPackaged;
 const DEV_RENDERER_URL = process.env.VITE_DEV_SERVER_URL || 'http://127.0.0.1:5173';
 
+const getProjectRoot = () => process.env.NFSE_PROJECT_ROOT || path.join(__dirname, '..');
+
 // Caminho para o Python (apenas em desenvolvimento)
 const getPythonPath = () => {
   if (process.env.NFSE_PYTHON_PATH) {
     return process.env.NFSE_PYTHON_PATH;
   }
 
-  const projectRoot = path.join(__dirname, '..');
+  const projectRoot = getProjectRoot();
   const venvPython = process.platform === 'win32'
     ? path.join(projectRoot, '.venv', 'Scripts', 'python.exe')
     : path.join(projectRoot, '.venv', 'bin', 'python');
@@ -46,8 +48,9 @@ const startPythonBackend = () => {
     } else {
       // Desenvolvimento ou macOS: usa Python do projeto
       command = getPythonPath();
-      args = [path.join(__dirname, '..', 'api_server.py')];
-      cwd = path.join(__dirname, '..');
+      const projectRoot = getProjectRoot();
+      args = [path.join(projectRoot, 'api', 'server.py')];
+      cwd = projectRoot;
     }
 
     console.log(`[Main] Iniciando backend: ${command}`);
@@ -60,6 +63,7 @@ const startPythonBackend = () => {
         ...process.env,
         PYTHONIOENCODING: 'utf-8',
         PYTHONUTF8: '1',
+        PYTHONUNBUFFERED: '1',
       },
     });
 
@@ -77,9 +81,9 @@ const startPythonBackend = () => {
       reject(err);
     });
 
-    // Polling /health até responder (máx 15s)
+    // Polling /health ate responder (max 60s)
     let retries = 0;
-    const maxRetries = 30; // 30 * 500ms = 15s
+    const maxRetries = 120; // 120 * 500ms = 60s
 
     const checkHealth = async () => {
       try {
