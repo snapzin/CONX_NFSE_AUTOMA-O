@@ -1,58 +1,6 @@
-# Ambientes virtuais
-.venv/
-.venv_mac/
+# Ignorar tudo
+*
 
-# Python cache
-__pycache__/
-*.pyc
-*.pyo
-
-# Configurações locais com dados reais (senhas, e-mails, caminhos pessoais)
-config.py
-config.py.bak
-config_mac.py
-runtime_settings.json
-runtime_settings.py
-
-# Licença local e chaves privadas
-license.key
-keygen_private.py
-chaves_geradas.log
-license-server/.env
-
-# Dados de clientes e certificados
-clientes.xlsx
-*.xlsx
-*.pfx
-*.p12
-
-# Builds e dist
-build/
-dist/
-dist_build/
-*.spec.bak
-
-# Electron
-electron/node_modules/
-electron/node_modules_corrupt_*/
-electron/renderer-dist/
-
-# Node legado
-js-app/node_modules/
-js-app/dist/
-
-# Ferramentas e logs
-.claude/
-nfse.log
-*.log
-chrome-profile/
-downloads/
-
-# Documentação interna (configuração e seletores)
-GUIA_SELETORES.md
-SETUP_CHECKLIST.md
-ELECTRON_README.md
-CLAUDE.md
-
-# macOS
-.DS_Store
+# Manter apenas o instalador Windows e este arquivo
+!.gitignore
+!NFSeAutomacao.exe
