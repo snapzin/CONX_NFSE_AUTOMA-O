@@ -1,0 +1,9 @@
+{
+  "version": 2,
+  "functions": {
+    "api/validate.js": {
+      "maxDuration": 5,
+      "memory": 128
+    }
+  }
+}

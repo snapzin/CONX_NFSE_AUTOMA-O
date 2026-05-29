@@ -1,0 +1,79 @@
+{
+  "name": "nfse-automacao",
+  "version": "2.3.0",
+  "description": "Automação NFSe com Electron + FastAPI",
+  "main": "main.js",
+  "homepage": "./",
+  "scripts": {
+    "dev:renderer": "vite",
+    "build:renderer": "vite build",
+    "dev": "node dev-runner.js",
+    "start": "electron .",
+    "build": "npm run build:renderer && electron-builder",
+    "watch:mac": "node watch-and-install.mjs"
+  },
+  "keywords": [
+    "nfse",
+    "automacao",
+    "certificado"
+  ],
+  "author": "CONX Contabilidade",
+  "license": "proprietary",
+  "dependencies": {
+    "framer-motion": "^11.0.0",
+    "react": "^18.3.0",
+    "react-dom": "^18.3.0"
+  },
+  "devDependencies": {
+    "@vitejs/plugin-react": "^4.3.0",
+    "concurrently": "^8.2.0",
+    "electron": "^29.4.6",
+    "electron-builder": "^24.6.4",
+    "vite": "^5.4.0",
+    "wait-on": "^7.2.0"
+  },
+  "build": {
+    "appId": "com.conx.nfse-automacao",
+    "productName": "NFSe Automacao",
+    "files": [
+      "main.js",
+      "preload.js",
+      "splash.html",
+      "assets/**/*",
+      "renderer-dist/**/*"
+    ],
+    "extraResources": [
+      {
+        "from": "../dist/server",
+        "to": "backend",
+        "filter": ["**/*"]
+      }
+    ],
+    "mac": {
+      "target": [
+        {
+          "target": "dmg",
+          "arch": ["x64"]
+        }
+      ],
+      "category": "public.app-category.business"
+    },
+    "win": {
+      "target": [
+        {
+          "target": "nsis",
+          "arch": ["x64"]
+        }
+      ],
+      "requestedExecutionLevel": "requireAdministrator"
+    },
+    "nsis": {
+      "oneClick": false,
+      "perMachine": false,
+      "allowToChangeInstallationDirectory": true,
+      "createDesktopShortcut": true,
+      "createStartMenuShortcut": true,
+      "shortcutName": "NFSe Automacao"
+    }
+  }
+}

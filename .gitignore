@@ -1,6 +1,49 @@
-# Ignorar tudo
-*
+# ── Python ────────────────────────────────────────────────────────
+__pycache__/
+*.pyc
+*.pyo
+.venv/
+.venv_mac/
 
-# Manter apenas o instalador Windows e este arquivo
-!.gitignore
-!NFSeAutomacao.exe
+# ── Node.js ───────────────────────────────────────────────────────
+node_modules/
+
+# ── Build outputs ─────────────────────────────────────────────────
+dist/
+dist_build/
+build/
+electron/dist/
+
+# ── Configurações locais da IDE ───────────────────────────────────
+.claude/
+
+# ── Binários gerados ──────────────────────────────────────────────
+*.exe
+*.dmg
+*.blockmap
+
+# ── SEGREDOS — nunca commitar ─────────────────────────────────────
+# config.py tem senha SMTP e caminhos locais — use config.example.py como base
+config.py
+# keygen_private.py documenta a chave mestra — nunca vai ao repo
+keygen_private.py
+# Arquivos de estado local da licença
+license.key
+license.grace
+chaves_geradas.log
+
+# ── Backups automáticos do config ─────────────────────────────────
+config.py.bak.*
+*.bak
+
+# ── Dados de runtime local ────────────────────────────────────────
+runtime_settings.json
+nfse.log
+clientes.xlsx
+
+# ── Vercel ────────────────────────────────────────────────────────
+.vercel/
+
+# ── Sistema operacional ───────────────────────────────────────────
+.DS_Store
+Thumbs.db

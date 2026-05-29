@@ -1,0 +1,14 @@
+customtkinter>=5.2.2
+tkcalendar>=1.6.1
+Pillow>=10.0.0
+cryptography>=44.0.0
+playwright==1.48.0
+openpyxl>=3.1.5
+fastapi>=0.104.0
+uvicorn>=0.24.0
+pyperclip>=1.9.0
+pyautogui>=0.9.54
+# pygetwindow nao suportado no macOS — o app trata a ImportError graciosamente
+opencv-python>=4.8.0
+numpy>=1.24.0
+pyinstaller>=6.0.0

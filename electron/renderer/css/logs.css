@@ -1,0 +1,146 @@
+/* ========================================================================
+   Logs CSS
+   ======================================================================== */
+
+.logs-box {
+  background-color: var(--bg-panel);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: var(--sp-lg);
+  display: flex;
+  flex-direction: column;
+  height: 300px;
+}
+
+.logs-box h3 {
+  margin-top: 0;
+  margin-bottom: var(--sp-md);
+  color: var(--text-1);
+  font-size: 14px;
+}
+
+#logs-panel {
+  flex: 1;
+  background-color: var(--bg-main);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: var(--sp-md);
+  overflow-y: auto;
+  font-family: var(--font-mono);
+  font-size: 12px;
+  line-height: 1.5;
+}
+
+.log-line {
+  margin-bottom: 4px;
+  word-break: break-word;
+}
+
+.log-line.log-debug {
+  color: #8b95a5;
+}
+
+.log-line.log-info {
+  color: #e6edf3;
+}
+
+.log-line.log-warning {
+  color: #f1c40f;
+}
+
+.log-line.log-error {
+  color: #ff6b6b;
+}
+
+.log-line.log-critical {
+  color: #ff3860;
+}
+
+/* ========================================================================
+   Config Scroll
+   ======================================================================== */
+
+.config-scroll {
+  overflow-y: auto;
+  padding: var(--sp-xl);
+}
+
+.config-section {
+  background-color: var(--bg-panel);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: var(--sp-lg);
+  margin-bottom: var(--sp-xl);
+}
+
+.config-section h3 {
+  margin-top: 0;
+  margin-bottom: var(--sp-lg);
+  color: var(--text-1);
+  font-size: 14px;
+}
+
+.config-field {
+  margin-bottom: var(--sp-lg);
+  display: flex;
+  flex-direction: column;
+}
+
+.config-field label {
+  font-size: 13px;
+  color: var(--text-2);
+  margin-bottom: 4px;
+  font-weight: 500;
+}
+
+.config-field-input-group {
+  display: flex;
+  gap: 8px;
+}
+
+.config-field input {
+  flex: 1;
+  padding: 8px 12px;
+  background-color: var(--bg-card);
+  border: 1px solid var(--border);
+  color: var(--text-1);
+  border-radius: 6px;
+  font-family: var(--font-mono);
+  font-size: 12px;
+}
+
+.config-field input:focus {
+  border-color: var(--accent);
+  outline: none;
+  background-color: rgba(42, 168, 137, 0.05);
+}
+
+.btn-browse {
+  padding: 8px 12px;
+  background-color: var(--bg-card);
+  border: 1px solid var(--border);
+  color: var(--text-2);
+  border-radius: 6px;
+  cursor: pointer;
+  transition: all 150ms var(--ease-out);
+  font-size: 14px;
+  flex-shrink: 0;
+}
+
+.btn-browse:hover {
+  border-color: var(--accent);
+  color: var(--accent);
+  background-color: rgba(42, 168, 137, 0.1);
+}
+
+.config-actions {
+  display: flex;
+  gap: var(--sp-md);
+  padding-top: var(--sp-lg);
+}
+
+.error {
+  color: var(--danger);
+  padding: var(--sp-xl);
+  text-align: center;
+}
