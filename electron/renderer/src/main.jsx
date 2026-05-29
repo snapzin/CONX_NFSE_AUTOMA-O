@@ -5,18 +5,22 @@ import './styles.css';
 
 const api = {
   async call(method, endpoint, body) {
+    // Caminho normal: IPC via preload (Electron) — inclui x-api-token automaticamente
     if (window.electronAPI?.apiCall) {
       return window.electronAPI.apiCall(method, endpoint, body ?? null);
     }
 
+    // Fallback para dev mode sem Electron (ex: Vite direto no browser)
+    // Nesse contexto NFSE_API_TOKEN não está definido no servidor, então sem auth.
     const response = await fetch(`http://127.0.0.1:17432${endpoint}`, {
       method,
       headers: { 'Content-Type': 'application/json' },
-      body: body ? JSON.stringify(body) : undefined,
+      body: body && Object.keys(body).length ? JSON.stringify(body) : undefined,
     });
 
     if (!response.ok) {
-      throw new Error(await response.text());
+      const text = await response.text();
+      throw new Error(`HTTP ${response.status}: ${text}`);
     }
 
     return response.json();
@@ -24,7 +28,7 @@ const api = {
   get(endpoint) {
     return this.call('GET', endpoint);
   },
-  post(endpoint, body = {}) {
+  post(endpoint, body = null) {
     return this.call('POST', endpoint, body);
   },
 };

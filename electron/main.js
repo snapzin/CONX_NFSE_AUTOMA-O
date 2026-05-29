@@ -184,7 +184,7 @@ ipcMain.handle('api-call', async (event, method, endpoint, body) => {
       signal: AbortSignal.timeout(30000),
     };
 
-    if (body) {
+    if (body && (typeof body !== 'object' || Object.keys(body).length > 0)) {
       options.body = JSON.stringify(body);
     }
 
