@@ -469,7 +469,7 @@ function ActivationModal({ api, onSuccess, onCancel, toast }) {
   const formatKey = (value) => {
     const clean = value.toUpperCase().replace(/[^A-Z0-9]/g, '');
     const parts = clean.match(/.{1,4}/g) || [];
-    return parts.slice(0, 4).join('-');
+    return parts.slice(0, 5).join('-');
   };
 
   const submit = async (e) => {
@@ -498,9 +498,9 @@ function ActivationModal({ api, onSuccess, onCancel, toast }) {
           type="text"
           value={key}
           onChange={(e) => setKey(formatKey(e.target.value))}
-          placeholder="NFSE-XXXX-XXXX-XXXX"
+          placeholder="NFSE-XXXX-XXXX-XXXX-XXXX"
           className="modal-input"
-          maxLength={19}
+          maxLength={24}
           spellCheck={false}
           autoComplete="off"
         />
