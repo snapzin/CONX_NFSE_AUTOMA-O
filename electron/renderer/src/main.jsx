@@ -130,6 +130,9 @@ function App() {
   const [license, setLicense] = useState({ licensed: null, message: '', key_hint: null });
   const [showActivateModal, setShowActivateModal] = useState(false);
   const [onboarding, setOnboarding] = useState(false);
+  // Persiste jobId e busy fora do ExecutarPage para não perder estado ao navegar
+  const [execJobId, setExecJobId] = useState(null);
+  const [execBusy, setExecBusy] = useState(false);
   const { toasts, push } = useToasts();
 
   useEffect(() => {
@@ -220,6 +223,10 @@ function App() {
                   onJobStatusUpdate={setSharedJobStatus}
                   license={license}
                   onActivate={() => setShowActivateModal(true)}
+                  jobId={execJobId}
+                  setJobId={setExecJobId}
+                  busy={execBusy}
+                  setBusy={setExecBusy}
                 />
               )}
               {page === 'clientes' && <ClientesPage api={api} toast={push} />}
@@ -615,12 +622,11 @@ function parseProgress(logs) {
   return { total, clients };
 }
 
-function ExecutarPage({ api, toast, setStatus, onLogsUpdate, onJobStatusUpdate, license, onActivate }) {
+function ExecutarPage({ api, toast, setStatus, onLogsUpdate, onJobStatusUpdate, license, onActivate, jobId, setJobId, busy, setBusy }) {
   const [usePrevMonth, setUsePrevMonth] = useState(true);
-  const [jobId, setJobId] = useState(null);
-  const [jobStatus, setJobStatus] = useState('Pronto');
+  const [jobStatus, setJobStatus] = useState(busy ? 'Executando' : 'Pronto');
   const [logs, setLogs] = useState([]);
-  const [busy, setBusy] = useState(false);
+  const [cancelling, setCancelling] = useState(false);
 
   // Datas padrao = primeiro/ultimo dia do mes anterior (formato ISO yyyy-mm-dd)
   const calcMesAnterior = () => {
@@ -658,6 +664,7 @@ function ExecutarPage({ api, toast, setStatus, onLogsUpdate, onJobStatusUpdate, 
         } else {
           setBusy(false);
           setJobId(null);
+          setCancelling(false);
           toast(result.status === 'ok' ? 'Execucao concluida.' : `Execucao ${result.status}.`, result.status === 'ok' ? 'success' : 'warning');
         }
       } catch (error) {
@@ -711,12 +718,14 @@ function ExecutarPage({ api, toast, setStatus, onLogsUpdate, onJobStatusUpdate, 
   };
 
   const cancel = async () => {
-    if (!jobId) return;
+    if (!jobId || cancelling) return;
+    setCancelling(true);
     try {
       await api.post(`/executar/${jobId}/cancelar`);
       toast('Cancelamento solicitado.', 'warning');
     } catch (error) {
       toast('Nao foi possivel cancelar.', 'error');
+      setCancelling(false);
     }
   };
 
@@ -809,8 +818,8 @@ function ExecutarPage({ api, toast, setStatus, onLogsUpdate, onJobStatusUpdate, 
             </span>
           )}
           {busy && (
-            <button className="btn-danger" type="button" onClick={cancel}>
-              Cancelar
+            <button className="btn-danger" type="button" onClick={cancel} disabled={cancelling}>
+              {cancelling ? <><Icon.Spinner /> Cancelando...</> : 'Cancelar'}
             </button>
           )}
         </div>
