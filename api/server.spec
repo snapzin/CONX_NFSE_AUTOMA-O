@@ -35,7 +35,9 @@ hiddenimports += [
     "h11", "h11._readers", "h11._writers",
     "email.mime.multipart", "email.mime.text",
     "nfse_automacao", "cert_reader", "dominio_importer", "config_defaults",
-    "runtime_settings",
+    "path_finder", "runtime_settings",
+    # tkinter (leve) p/ seletor de pasta no fallback "perguntar na 1a execucao"
+    "tkinter", "tkinter.filedialog",
 ]
 
 # ── Análise ────────────────────────────────────────────────────────────────────
@@ -50,7 +52,7 @@ a = Analysis(
     runtime_hooks=[],
     excludes=[
         "config",                  # fica externo, ao lado do server.exe
-        "customtkinter", "tkcalendar", "PIL", "tkinter",
+        "customtkinter", "tkcalendar", "PIL",
         "notebook", "IPython", "matplotlib", "selenium",
     ],
     noarchive=False,

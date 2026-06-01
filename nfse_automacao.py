@@ -69,6 +69,8 @@ class Parametros:
     data_inicio: str
     data_fim: str
     cnpjs: Optional[list[str]] = field(default=None)
+    # Tipos de nota a baixar: "emitidas", "recebidas" ou "ambas".
+    tipos: str = "ambas"
 
 
 @dataclass
@@ -199,6 +201,8 @@ class NFSePlaywrightRunner:
         self.timeout_ms = int(getattr(config, "PLAYWRIGHT_TIMEOUT_MS", 60000))
         self.download_timeout_s = int(getattr(config, "PLAYWRIGHT_DOWNLOAD_TIMEOUT_S", 180))
         self.login_timeout_s = int(getattr(config, "PLAYWRIGHT_LOGIN_TIMEOUT_S", 45))
+        # Espera (s) para o painel da extensao carregar tudo antes de clicar.
+        self.extensao_espera_s = int(getattr(config, "NFSE_EXTENSAO_ESPERA_S", 20))
         self._pfx_temp_path: Path | None = None
 
     def processar_cliente(
@@ -223,12 +227,19 @@ class NFSePlaywrightRunner:
 
             ext_id = self._obter_extension_id(context, cliente)
 
-            ne, ae = self._baixar_tipo_extensao(
-                page, context, ext_id, "emitidas", params, output_dir, cliente
-            )
-            nr, ar = self._baixar_tipo_extensao(
-                page, context, ext_id, "recebidas", params, output_dir, cliente
-            )
+            tipos = str(getattr(params, "tipos", "ambas") or "ambas").lower()
+            baixar_emitidas = tipos in ("emitidas", "ambas")
+            baixar_recebidas = tipos in ("recebidas", "ambas")
+
+            ne, ae, nr, ar = 0, "", 0, ""
+            if baixar_emitidas:
+                ne, ae = self._baixar_tipo_extensao(
+                    page, context, ext_id, "emitidas", params, output_dir, cliente
+                )
+            if baixar_recebidas:
+                nr, ar = self._baixar_tipo_extensao(
+                    page, context, ext_id, "recebidas", params, output_dir, cliente
+                )
             return ne, ae, nr, ar
         finally:
             try:
@@ -289,6 +300,17 @@ class NFSePlaywrightRunner:
         except Exception as e:
             log.debug("Maximize falhou: %s", e)
 
+        # Traz o Chrome para o primeiro plano — senao os cliques/screenshots
+        # do pyautogui caem em outra janela (ex.: VS Code).
+        self._focar_chrome()
+
+        # Se o painel JA esta aberto (ex.: 2o tipo no modo 'Ambas', logo apos
+        # baixar as emitidas), NAO clica no icone de novo — o icone funciona
+        # como toggle e fecharia o painel. Apenas reutiliza o que ja esta aberto.
+        if self._side_panel_aberto():
+            log.info("Side panel ja aberto; reutilizando (sem novo clique no icone).")
+            return
+
         # Clique fisico no icone da extensao via pyautogui
         # (Funcao tenta image recognition + coords fixas como fallback)
         try:
@@ -329,66 +351,271 @@ class NFSePlaywrightRunner:
         except Exception as e:
             log.debug("Ativacao da janela falhou: %s", e)
 
-        # PRIORIDADE 1: reconhecimento por imagem (confidence baixa + grayscale)
+        # Fecha qualquer menu/popup que tenha ficado aberto de tentativa anterior.
         try:
-            ext_dir = Path(str(getattr(config, "CHROME_EXTENSION_DIR", "")).strip())
-            for img_name in ("icon16.png", "icon32.png", "icon48.png"):
-                img_path = ext_dir / img_name
-                if not img_path.exists():
-                    continue
-                # Tenta com varias configuracoes de matching
-                for conf, gray in ((0.6, False), (0.5, True), (0.4, True)):
-                    try:
-                        loc = pyautogui.locateOnScreen(
-                            str(img_path), confidence=conf, grayscale=gray,
-                        )
-                        if loc:
-                            center = pyautogui.center(loc)
-                            log.info(
-                                "Icone '%s' encontrado em (%d, %d) [conf=%.1f gray=%s]",
-                                img_name, center.x, center.y, conf, gray,
-                            )
-                            pyautogui.click(x=center.x, y=center.y, clicks=1)
-                            return True
-                    except Exception as e:
-                        log.debug("locateOnScreen %s conf=%.1f falhou: %s",
-                                  img_name, conf, e)
-        except Exception as e:
-            log.debug("Reconhecimento de imagem falhou: %s", e)
+            pyautogui.press("esc")
+            time.sleep(0.3)
+        except Exception:
+            pass
 
-        # PRIORIDADE 2: coordenadas fixas baseadas em janela maximizada (1920x1080)
-        # Layout right-to-left observado: menu(3pts) ~-25 | avatar ~-60 |
-        # divider ~-95 | puzzle ~-120 | EXT_PINNED ~-185 | star ~-225
-        # Tenta varias posicoes de extensao fixada (ordem do mais provavel)
-        screen_w, _ = pyautogui.size()
-        toolbar_y = 85
-        candidatos_x = [185, 155, 215, 145, 245, 125]
+        screen_w, screen_h = pyautogui.size()
+        toolbar_y = min(85, screen_h - 1)
 
-        for off in candidatos_x:
+        # PRIORIDADE 1: template matching MULTI-ESCALA do icone REAL fixado.
+        # Robusto a escalonamento de tela (DPI) — ao contrario do locateOnScreen.
+        regiao_toolbar = (0, 0, screen_w, min(140, screen_h))
+        ponto = self._template_match_icone(regiao_toolbar, threshold=0.70)
+        if ponto:
+            x, y = ponto
+            log.info("Icone da extensao localizado (template) em (%d, %d)", x, y)
+            pyautogui.click(x=x, y=y, clicks=1)
+            time.sleep(1.0)
+            if self._side_panel_aberto():
+                log.info("Side panel aberto via icone fixado.")
+                return True
+            log.info("Clique no icone nao abriu o painel; tentando menu de extensoes.")
+            try:
+                pyautogui.press("esc")
+                time.sleep(0.2)
+            except Exception:
+                pass
+
+        # PRIORIDADE 2: abre o menu de extensoes (quebra-cabeca) e clica na
+        # entrada da extensao, localizada por template DENTRO do menu aberto.
+        for off in (150, 175, 130, 200):
+            px = screen_w - off
+            try:
+                pyautogui.click(x=px, y=toolbar_y, clicks=1)
+            except Exception:
+                continue
+            time.sleep(0.8)
+            regiao_menu = (max(0, screen_w - 540), 60, screen_w, min(560, screen_h))
+            ponto = self._template_match_icone(regiao_menu, threshold=0.62)
+            if ponto:
+                x, y = ponto
+                log.info("Entrada da extensao no menu em (%d, %d)", x, y)
+                pyautogui.click(x=x, y=y, clicks=1)
+                time.sleep(1.0)
+                if self._side_panel_aberto():
+                    log.info("Side panel aberto via menu de extensoes.")
+                    return True
+            try:
+                pyautogui.press("esc")
+                time.sleep(0.2)
+            except Exception:
+                pass
+
+        # PRIORIDADE 3 (ultimo recurso): coordenadas fixas, VERIFICANDO a abertura
+        # e fechando menus errados (Escape) entre as tentativas.
+        for off in (215, 245, 185, 155, 125):
             x = screen_w - off
-            log.info("Clicando icone em coord (%d, %d) [offset -%d]",
-                     x, toolbar_y, off)
+            log.info("Tentando icone em coord (%d, %d) [offset -%d]", x, toolbar_y, off)
             try:
                 pyautogui.click(x=x, y=toolbar_y, clicks=1)
             except Exception as e:
                 log.warning("Click em (%d,%d) falhou: %s", x, toolbar_y, e)
                 continue
-            time.sleep(0.8)
-            # Verifica se side panel abriu (largura da janela do Chrome diminui ~440px
-            # quando o side panel abre — checa via pygetwindow)
+            time.sleep(1.0)
+            if self._side_panel_aberto():
+                log.info("Side panel aberto via coordenada (offset -%d).", off)
+                return True
             try:
-                chrome_wins = [w for w in gw.getAllWindows()
-                               if w.title and "NFS-e" in w.title]
-                if chrome_wins:
-                    win = chrome_wins[0]
-                    # Quando side panel abre, a area de conteudo da pagina diminui.
-                    # Como heuristica simples: se ja clicou e passou 0.8s, assume OK
-                    log.info("Click feito. Janela: %dx%d", win.width, win.height)
-                    return True
+                pyautogui.press("esc")
+                time.sleep(0.2)
             except Exception:
                 pass
-            return True  # devolve True apos o primeiro clique
+
+        log.warning("Nao foi possivel abrir o side panel da extensao.")
         return False
+
+    def _template_match_icone(self, regiao=None, threshold: float = 0.62):
+        """Localiza o icone da extensao na tela via template matching multi-escala.
+
+        Compara icon16/48/128.png (em varias escalas absolutas, p/ lidar com DPI)
+        contra um recorte da tela. Retorna (x, y) do centro em coords de tela.
+        """
+        try:
+            import pyautogui
+            import numpy as np
+            import cv2
+        except Exception:
+            return None
+
+        ext_dir = str(getattr(config, "CHROME_EXTENSION_DIR", "") or "").strip()
+        if not ext_dir:
+            return None
+        ext_path = Path(ext_dir)
+
+        try:
+            shot = pyautogui.screenshot()
+            tela = cv2.cvtColor(np.array(shot), cv2.COLOR_RGB2BGR)
+        except Exception:
+            return None
+
+        if regiao:
+            rx, ry, rr, rb = regiao
+            rx, ry = max(0, rx), max(0, ry)
+            recorte = tela[ry:rb, rx:rr]
+            off_x, off_y = rx, ry
+        else:
+            recorte = tela
+            off_x, off_y = 0, 0
+        if recorte.size == 0:
+            return None
+
+        def _carregar_template(arq: Path):
+            """Carrega o icone e compoe a transparencia sobre fundo branco
+            (a toolbar/menu do Chrome sao claros) — senao o alpha vira preto
+            e o matching falha."""
+            im = cv2.imread(str(arq), cv2.IMREAD_UNCHANGED)
+            if im is None:
+                return None
+            if im.ndim == 3 and im.shape[2] == 4:
+                bgr = im[:, :, :3].astype(float)
+                a = (im[:, :, 3].astype(float) / 255.0)[..., None]
+                return (bgr * a + 255.0 * (1.0 - a)).astype("uint8")
+            return im
+
+        melhor_score = 0.0
+        melhor_ponto = None
+        for nome in ("icon16.png", "icon48.png", "icon128.png"):
+            arq = ext_path / nome
+            if not arq.exists():
+                continue
+            base = _carregar_template(arq)
+            if base is None:
+                continue
+            bh, bw = base.shape[:2]
+            # Icone na toolbar/menu costuma ter ~14-26px conforme a escala de tela.
+            for lado in range(12, 30, 2):
+                alt = max(1, round(lado * bh / bw))  # preserva proporcao
+                if recorte.shape[0] < alt or recorte.shape[1] < lado:
+                    continue
+                tmpl = cv2.resize(base, (lado, alt), interpolation=cv2.INTER_AREA)
+                res = cv2.matchTemplate(recorte, tmpl, cv2.TM_CCOEFF_NORMED)
+                _, maxv, _, maxloc = cv2.minMaxLoc(res)
+                if maxv > melhor_score:
+                    melhor_score = maxv
+                    melhor_ponto = (
+                        off_x + maxloc[0] + lado // 2,
+                        off_y + maxloc[1] + alt // 2,
+                    )
+
+        log.info("Template matching icone: score=%.2f (limiar=%.2f)",
+                 melhor_score, threshold)
+        return melhor_ponto if melhor_score >= threshold else None
+
+    def _side_panel_aberto(self) -> bool:
+        """Detecta se o side panel 'Baixar NFSe' esta aberto.
+
+        Assinatura do painel: cabecalho ESCURO largo na faixa direita (a barra
+        preta com o titulo 'Baixar NFSe') E, logo abaixo, um CORPO CLARO (o
+        conteudo branco do painel). Exigir as duas coisas evita falso positivo
+        com janelas escuras (VS Code, etc.) e com o menu de extensoes.
+        """
+        try:
+            import pyautogui
+            import numpy as np
+            import cv2
+        except Exception:
+            return False
+        try:
+            shot = pyautogui.screenshot()
+            img = cv2.cvtColor(np.array(shot), cv2.COLOR_RGB2BGR)
+            h, w = img.shape[:2]
+            x0 = max(0, w - 460)
+            faixa = img[:, x0:w]
+            gray = cv2.cvtColor(faixa, cv2.COLOR_BGR2GRAY)
+            fh, fw = gray.shape
+
+            # 1. Cabecalho escuro: alguma linha larga e escura no topo do painel.
+            topo_ini, topo_fim = min(90, fh), min(310, fh)
+            header_y = None
+            for y in range(topo_ini, topo_fim):
+                if int((gray[y] < 80).sum()) >= fw * 0.6:
+                    header_y = y
+                    break
+            if header_y is None:
+                return False
+
+            # 2. Corpo claro logo abaixo do cabecalho (conteudo branco do painel).
+            corpo_ini = min(header_y + 45, fh)
+            corpo_fim = min(corpo_ini + 200, fh)
+            if corpo_fim - corpo_ini < 40:
+                return False
+            corpo = gray[corpo_ini:corpo_fim]
+            fracao_clara = float((corpo > 170).mean())
+            return fracao_clara >= 0.5
+        except Exception:
+            return False
+
+    def _focar_chrome(self) -> bool:
+        """Traz a janela do Chrome para o PRIMEIRO PLANO de forma robusta.
+
+        Critico: os cliques/screenshots do pyautogui agem na janela em foco.
+        Se o Chrome nao estiver na frente, tudo cai na janela errada. Usa o
+        truque AttachThreadInput (ctypes) para contornar a protecao do Windows
+        contra roubo de foco. Retorna True se conseguiu focar.
+        """
+        try:
+            import pygetwindow as gw
+        except Exception:
+            return False
+        try:
+            wins = [w for w in gw.getAllWindows()
+                    if w.title and ("NFS-e" in w.title or "Chrome" in w.title)]
+            if not wins:
+                return False
+            win = next((w for w in wins if w.visible and w.width > 200), wins[0])
+            hwnd = getattr(win, "_hWnd", None)
+
+            focado_via_ctypes = False
+            if hwnd:
+                try:
+                    import ctypes
+                    user32 = ctypes.windll.user32
+                    kernel32 = ctypes.windll.kernel32
+                    SW_RESTORE = 9
+                    fg = user32.GetForegroundWindow()
+                    cur = kernel32.GetCurrentThreadId()
+                    fg_thread = user32.GetWindowThreadProcessId(fg, None)
+                    win_thread = user32.GetWindowThreadProcessId(hwnd, None)
+                    user32.AttachThreadInput(win_thread, cur, True)
+                    user32.AttachThreadInput(fg_thread, cur, True)
+                    # IMPORTANTE: so restaura se estiver MINIMIZADA. SW_RESTORE
+                    # numa janela maximizada a DESMAXIMIZA — o que causava o
+                    # efeito de "entrar e sair da tela cheia" a cada clique.
+                    if user32.IsIconic(hwnd):
+                        user32.ShowWindow(hwnd, SW_RESTORE)
+                    user32.BringWindowToTop(hwnd)
+                    user32.SetForegroundWindow(hwnd)
+                    user32.AttachThreadInput(fg_thread, cur, False)
+                    user32.AttachThreadInput(win_thread, cur, False)
+                    focado_via_ctypes = True
+                except Exception as e:
+                    log.debug("Foreground via ctypes falhou: %s", e)
+
+            # So usa o fallback do pygetwindow se o ctypes nao resolveu —
+            # win.activate() tambem pode alterar o estado de maximizacao.
+            if not focado_via_ctypes:
+                try:
+                    win.activate()
+                except Exception:
+                    pass
+            time.sleep(0.4)
+
+            try:
+                import ctypes
+                fg = ctypes.windll.user32.GetForegroundWindow()
+                if hwnd and fg != hwnd:
+                    log.warning("Chrome nao ficou em primeiro plano (foco em outra janela).")
+                    return False
+            except Exception:
+                pass
+            return True
+        except Exception as e:
+            log.debug("Foco do Chrome falhou: %s", e)
+            return False
 
     def _detectar_lado_panel(self):
         """
@@ -507,6 +734,7 @@ class NFSePlaywrightRunner:
             log.error("pyautogui nao instalado")
             return
 
+        self._focar_chrome()
         self._salvar_screenshot_debug(cliente, f"01_antes_{tipo}")
 
         regiao = self._detectar_lado_panel()
@@ -558,6 +786,7 @@ class NFSePlaywrightRunner:
         except ImportError:
             return
 
+        self._focar_chrome()
         self._salvar_screenshot_debug(cliente, "03_antes_iniciar")
 
         # Snapshot de downloads pra detectar mudancas
@@ -786,11 +1015,22 @@ class NFSePlaywrightRunner:
         log.info("[%s] Baixando %s via extensao NFSe...", cliente.cnpj, tipo)
 
         try:
+            # 0. Se o portal estiver fora do ar (503/500/403) mesmo apos o login,
+            #    recarrega ate voltar antes de tentar baixar.
+            if not self._recuperar_portal_se_erro(page_portal, cliente, f"antes de baixar {tipo}"):
+                log.warning("[%s] Pulando %s: portal indisponivel.", cliente.cnpj, tipo)
+                return 0, ""
+
             # 1. Abre o side panel da extensao (clique pyautogui no icone fixado)
             self._abrir_popup_extensao(context, ext_id, page_portal)
 
-            # 2. Espera o side panel renderizar (JS da extensao precisa rodar)
-            time.sleep(2.5)
+            # 2. Espera o side panel carregar TUDO (a extensao le a sessao do
+            #    portal e monta os botoes/periodo). Configuravel via
+            #    NFSE_EXTENSAO_ESPERA_S (padrao 20s).
+            espera = max(2.5, self.extensao_espera_s)
+            log.info("[%s] Aguardando %ds o painel da extensao carregar...",
+                     cliente.cnpj, int(espera))
+            time.sleep(espera)
             self._salvar_screenshot_debug(cliente, f"00_panel_aberto_{tipo}")
 
             # 3. Clica no botao "Emitidas" ou "Recebidas" via pyautogui (coords da side panel)
@@ -982,6 +1222,57 @@ class NFSePlaywrightRunner:
         return args
 
     def _login_com_certificado(self, page: Page, cliente: Cliente, cert: CertificadoInfo) -> None:
+        """Loga com o certificado. Se falhar, RECARREGA a pagina e tenta de
+        novo, ate NFSE_LOGIN_MAX_TENTATIVAS (padrao 5). Evita travar o lote
+        inteiro num certificado problematico."""
+        login_url = str(getattr(config, "NFSE_LOGIN_URL", "")).strip()
+        if not login_url:
+            raise ValueError("NFSE_LOGIN_URL nao configurada.")
+
+        max_tentativas = max(1, int(getattr(config, "NFSE_LOGIN_MAX_TENTATIVAS", 5)))
+        ultimo_motivo = ""
+        for tentativa in range(1, max_tentativas + 1):
+            _check_cancel(self.cancel_event, f"[{cliente.cnpj}] Execucao cancelada antes do login.")
+            try:
+                self._login_uma_tentativa(page, cliente, cert)
+                # Sucesso = saiu da tela de login E nao caiu numa pagina de erro
+                # (ex.: 403 Forbidden em /EmissorNacional/Certificado).
+                if self._is_nfse_nacional_login(page):
+                    ultimo_motivo = "ainda na tela de login apos a tentativa"
+                elif self._pagina_com_erro(page):
+                    ultimo_motivo = "pagina de erro de acesso (403/Forbidden)"
+                else:
+                    log.info("[%s] Login OK na tentativa %d/%d.",
+                             cliente.cnpj, tentativa, max_tentativas)
+                    return
+            except ExecucaoCancelada:
+                raise
+            except Exception as e:
+                ultimo_motivo = str(e)
+                log.warning("[%s] Login falhou (tentativa %d/%d): %s",
+                            cliente.cnpj, tentativa, max_tentativas, ultimo_motivo[:200])
+
+            if tentativa < max_tentativas:
+                # Espera crescente (3s, 6s, 9s...) — da folga ao portal quando
+                # ele esta instavel, em vez de martelar rapido.
+                espera_ms = min(3000 * tentativa, 15000)
+                log.info("[%s] Recarregando p/ nova tentativa de login em %ds...",
+                         cliente.cnpj, espera_ms // 1000)
+                try:
+                    page.goto(login_url, wait_until="commit", timeout=30000)
+                except Exception:
+                    try:
+                        page.reload(wait_until="commit", timeout=30000)
+                    except Exception:
+                        pass
+                page.wait_for_timeout(espera_ms)
+
+        raise RuntimeError(
+            f"[{cliente.cnpj}] Nao foi possivel logar com o certificado apos "
+            f"{max_tentativas} tentativas. Ultimo motivo: {ultimo_motivo}"
+        )
+
+    def _login_uma_tentativa(self, page: Page, cliente: Cliente, cert: CertificadoInfo) -> None:
         _check_cancel(self.cancel_event, f"[{cliente.cnpj}] Execucao cancelada antes do login.")
         login_url = str(getattr(config, "NFSE_LOGIN_URL", "")).strip()
         if not login_url:
@@ -1039,6 +1330,85 @@ class NFSePlaywrightRunner:
     def _is_nfse_nacional_login(page: Page) -> bool:
         url = page.url.lower()
         return "nfse.gov.br/emissornacional/login" in url or "login.acesso.gov.br" in url
+
+    @staticmethod
+    def _pagina_com_erro(page: Page) -> bool:
+        """Detecta paginas de erro do portal (ex.: '403 - Forbidden: Access is
+        denied.', 'The service is unavailable.').
+
+        IMPORTANTE: so deve dar positivo numa pagina de erro REAL — nunca na
+        dashboard logada. Por isso usa apenas FRASES inequivocas (sem numeros
+        soltos, que casariam com valores da pagina) e exige pagina CURTA para
+        termos mais genericos (paginas de erro tem pouquissimo texto).
+        """
+        try:
+            titulo = ""
+            try:
+                titulo = (page.title() or "")
+            except Exception:
+                pass
+            corpo = ""
+            try:
+                corpo = page.locator("body").inner_text(timeout=2500)
+            except Exception:
+                pass
+            t = f"{titulo}\n{corpo}".lower()
+
+            # Frases inequivocas: nunca aparecem numa pagina normal do portal.
+            frases = (
+                "forbidden", "access is denied", "acesso negado",
+                "you do not have permission",
+                "the service is unavailable", "service is unavailable",
+                "servico indisponivel", "serviço indisponível",
+                "temporarily unavailable",
+                "internal server error", "bad gateway", "gateway timeout",
+            )
+            achou = next((f for f in frases if f in t), None)
+
+            # Termos genericos so contam se a pagina for CURTA (erro tem pouco
+            # texto) — evita falso positivo na dashboard, que e longa.
+            if achou is None and len(corpo.strip()) < 600 and (
+                "server error" in t or "erro do servidor" in t
+            ):
+                achou = "server error"
+
+            if achou:
+                log.warning(
+                    "Pagina de erro detectada (sinal '%s') | titulo=%r | url=%s | corpo[:120]=%r",
+                    achou, titulo[:80], page.url, corpo.strip()[:120],
+                )
+                return True
+            return False
+        except Exception:
+            return False
+
+    def _recuperar_portal_se_erro(self, page: Page, cliente: Cliente, desc: str = "") -> bool:
+        """Se o portal estiver mostrando pagina de erro (503/500/403) — o que
+        acontece mesmo APOS o login, na hora de baixar —, RECARREGA a pagina
+        ate o portal voltar a responder (ate NFSE_LOGIN_MAX_TENTATIVAS).
+
+        Retorna True se o portal esta OK, False se seguiu com erro.
+        """
+        if not self._pagina_com_erro(page):
+            return True
+        max_t = max(1, int(getattr(config, "NFSE_LOGIN_MAX_TENTATIVAS", 5)))
+        for tentativa in range(1, max_t + 1):
+            _check_cancel(self.cancel_event,
+                          f"[{cliente.cnpj}] Cancelado recuperando portal.")
+            espera_ms = min(3000 * tentativa, 15000)
+            log.warning("[%s] Portal indisponivel (%s). Recarregando %d/%d em %ds...",
+                        cliente.cnpj, desc or page.url, tentativa, max_t, espera_ms // 1000)
+            try:
+                page.reload(wait_until="commit", timeout=30000)
+            except Exception as e:
+                log.debug("[%s] reload falhou: %s", cliente.cnpj, str(e)[:120])
+            page.wait_for_timeout(espera_ms)
+            if not self._pagina_com_erro(page):
+                log.info("[%s] Portal voltou a responder.", cliente.cnpj)
+                return True
+        log.error("[%s] Portal seguiu indisponivel apos %d recargas.",
+                  cliente.cnpj, max_t)
+        return False
 
     def _acionar_login_certificado_nfse(self, page: Page, cliente: Cliente) -> None:
         # Se o Chrome ja redirecionou para fora da tela de login, nao ha nada a clicar.
@@ -1395,10 +1765,15 @@ def preparar_parametros(
     data_inicio: str | None = None,
     data_fim: str | None = None,
     cnpjs: list[str] | None = None,
+    tipos: str | None = None,
 ) -> Parametros:
     """Monta parametros. Se nao houver datas, usa mes anterior."""
     if not data_inicio or not data_fim:
         data_inicio, data_fim = _mes_anterior()
+
+    tipos_norm = str(tipos or "ambas").lower().strip()
+    if tipos_norm not in ("emitidas", "recebidas", "ambas"):
+        tipos_norm = "ambas"
 
     filtrados = None
     if cnpjs:
@@ -1427,12 +1802,14 @@ def preparar_parametros(
         data_inicio=data_inicio,
         data_fim=data_fim,
         cnpjs=filtrados,
+        tipos=tipos_norm,
     )
     log.info(
-        "Parametros: %s -> %s | CNPJs: %s",
+        "Parametros: %s -> %s | CNPJs: %s | Tipos: %s",
         params.data_inicio,
         params.data_fim,
         params.cnpjs or "todos",
+        params.tipos,
     )
     return params
 

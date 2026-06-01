@@ -343,6 +343,65 @@ async def set_config(body: dict):
         logger.exception("Falha ao salvar config")
         raise HTTPException(status_code=500, detail=str(e))
 
+@app.get("/paths/status")
+async def paths_status():
+    """Diagnostico dos caminhos + sugestoes auto-detectadas (1a execucao).
+
+    Usado pelo frontend para decidir se mostra o onboarding e ja pre-preencher
+    as pastas detectadas (certificados no Google Drive, DOMINIO WEB local).
+    """
+    try:
+        import path_finder as pf
+    except Exception:
+        pf = None
+
+    certs_path = str(getattr(config, "PASTA_CERTS", "") or "")
+    saida_path = str(getattr(config, "PASTA_SAIDA", "") or "")
+
+    def _certs_info(p: str) -> dict:
+        pp = Path(p) if p else None
+        exists = bool(pp and pp.is_dir())
+        pfx = 0
+        if exists:
+            try:
+                pfx = sum(
+                    1 for f in pp.iterdir()
+                    if f.is_file() and f.suffix.lower() == ".pfx"
+                )
+            except OSError:
+                pfx = 0
+        return {"path": p, "exists": exists, "pfxCount": pfx, "ok": exists and pfx > 0}
+
+    def _dir_info(p: str) -> dict:
+        pp = Path(p) if p else None
+        exists = bool(pp and pp.is_dir())
+        return {"path": p, "exists": exists, "ok": exists}
+
+    certs = _certs_info(certs_path)
+    saida = _dir_info(saida_path)
+
+    sug_certs = sug_saida = ""
+    if pf:
+        try:
+            achado_certs = pf.find_certs_folder()
+            sug_certs = str(achado_certs) if achado_certs else ""
+            achado_dom = pf.find_dominio_web_folder()
+            if achado_dom:
+                sug_saida = str(Path(achado_dom) / pf.SIMPLES_NACIONAL_NAME)
+        except Exception:
+            pass
+
+    return {
+        "certs": certs,
+        "saida": saida,
+        "needsSetup": not certs["ok"],
+        "suggestions": {
+            "PASTA_CERTS": sug_certs or (certs_path if certs["ok"] else ""),
+            "PASTA_SAIDA": sug_saida or saida_path,
+        },
+    }
+
+
 @app.get("/certificados")
 async def count_certificados(incluir_lista: bool = False):
     """Lista certificados da PASTA_CERTS."""
@@ -520,6 +579,7 @@ async def start_execution(body: dict):
         data_inicio = body.get("dataInicio")
         data_fim = body.get("dataFim")
         cnpjs = body.get("cnpjs")
+        tipos = body.get("tipos")  # "emitidas" | "recebidas" | "ambas"
 
         job_id = str(uuid.uuid4())[:8]
         job = Job(id=job_id, status="running")
@@ -531,7 +591,7 @@ async def start_execution(body: dict):
 
         def run_job():
             try:
-                params = preparar_parametros(data_inicio, data_fim, cnpjs)
+                params = preparar_parametros(data_inicio, data_fim, cnpjs, tipos)
                 resultado = executar_local(params, cancel_event=job.cancel_event)
                 job.status = "ok"
                 job.resultado = {

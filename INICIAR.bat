@@ -118,6 +118,17 @@ if "%NPM_READY%"=="0" (
   echo.
 )
 
+REM ============================================================
+REM  Encerra instancias anteriores do app que tenham ficado
+REM  rodando (backend na porta 17432 e Vite na 5173). Sem isso,
+REM  o novo backend nao consegue subir (porta ocupada) e o app
+REM  fala com o backend antigo -> erro 401 "Nao autorizado".
+REM  Roda como ADMIN, entao consegue encerrar processos elevados.
+REM ============================================================
+echo Encerrando instancias anteriores (se houver)...
+powershell -NoProfile -Command "Get-NetTCPConnection -LocalPort 17432,5173 -State Listen -ErrorAction SilentlyContinue | Select-Object -ExpandProperty OwningProcess -Unique | ForEach-Object { try { Stop-Process -Id $_ -Force -ErrorAction Stop } catch {} }; $root = \"$env:LOCALAPPDATA\NFSE_Automacao\"; Get-Process electron,node -ErrorAction SilentlyContinue | Where-Object { $_.Path -and $_.Path.StartsWith($root) } | ForEach-Object { try { Stop-Process -Id $_.Id -Force -ErrorAction Stop } catch {} }"
+echo.
+
 echo Abrindo aplicativo desktop...
 echo.
 

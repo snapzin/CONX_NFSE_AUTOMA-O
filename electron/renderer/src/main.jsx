@@ -130,13 +130,18 @@ function App() {
   const [license, setLicense] = useState({ licensed: null, message: '', key_hint: null });
   const [showActivateModal, setShowActivateModal] = useState(false);
   const [onboarding, setOnboarding] = useState(false);
+  const [onboardingSuggestions, setOnboardingSuggestions] = useState({});
   const { toasts, push } = useToasts();
 
   useEffect(() => {
-    api.get('/config').then((result) => {
-      const certs = result?.values?.PASTA_CERTS || '';
-      const isDefault = !certs || certs.includes('Meu Drive') || certs.includes('Caminho\\Para');
-      if (isDefault) setOnboarding(true);
+    // Mostra o onboarding apenas se os caminhos NAO foram resolvidos
+    // automaticamente (pasta de certificados inexistente ou sem .pfx).
+    // As sugestoes auto-detectadas pre-preenchem o wizard.
+    api.get('/paths/status').then((status) => {
+      if (status?.needsSetup) {
+        setOnboardingSuggestions(status.suggestions || {});
+        setOnboarding(true);
+      }
     }).catch(() => {});
   }, []);
 
@@ -179,6 +184,7 @@ function App() {
     return (
       <OnboardingWizard
         api={api}
+        suggestions={onboardingSuggestions}
         onComplete={() => setOnboarding(false)}
       />
     );
@@ -305,10 +311,10 @@ const ONBOARDING_STEPS = [
   { id: 'done' },
 ];
 
-function OnboardingWizard({ api, onComplete }) {
+function OnboardingWizard({ api, suggestions, onComplete }) {
   const [step, setStep] = useState(0);
-  const [pastaCerts, setPastaCerts] = useState('');
-  const [pastaSaida, setPastaSaida] = useState('');
+  const [pastaCerts, setPastaCerts] = useState(suggestions?.PASTA_CERTS || '');
+  const [pastaSaida, setPastaSaida] = useState(suggestions?.PASTA_SAIDA || '');
   const [saving, setSaving] = useState(false);
 
   const selectFolder = async (setter) => {
@@ -617,6 +623,7 @@ function parseProgress(logs) {
 
 function ExecutarPage({ api, toast, setStatus, onLogsUpdate, onJobStatusUpdate, license, onActivate }) {
   const [usePrevMonth, setUsePrevMonth] = useState(true);
+  const [tipoNota, setTipoNota] = useState('ambas'); // 'emitidas' | 'recebidas' | 'ambas'
   const [jobId, setJobId] = useState(null);
   const [jobStatus, setJobStatus] = useState('Pronto');
   const [logs, setLogs] = useState([]);
@@ -700,6 +707,7 @@ function ExecutarPage({ api, toast, setStatus, onLogsUpdate, onJobStatusUpdate, 
         dataInicio: usePrevMonth ? null : isoToBr(dataInicio),
         dataFim: usePrevMonth ? null : isoToBr(dataFim),
         cnpjs: null,
+        tipos: tipoNota,
       });
       setJobId(result.jobId);
       toast('Execucao iniciada.', 'info');
@@ -767,6 +775,24 @@ function ExecutarPage({ api, toast, setStatus, onLogsUpdate, onJobStatusUpdate, 
 
       <div className="form-box">
         <h3>Parametros de execucao</h3>
+
+        <div className="tipo-row">
+          <span className="tipo-label">Tipo de nota</span>
+          <div className="tipo-options">
+            {[['emitidas', 'Emitidas'], ['recebidas', 'Recebidas'], ['ambas', 'Ambas']].map(([val, label]) => (
+              <button
+                key={val}
+                type="button"
+                className={tipoNota === val ? 'btn-primary' : 'btn-secondary'}
+                onClick={() => setTipoNota(val)}
+                style={{ padding: '6px 16px' }}
+              >
+                {label}
+              </button>
+            ))}
+          </div>
+        </div>
+
         <label className="check-row">
           <input
             type="checkbox"

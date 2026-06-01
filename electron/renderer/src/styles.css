@@ -351,6 +351,25 @@ input::placeholder {
   cursor: pointer;
 }
 
+/* ─── Tipo de nota (Emitidas / Recebidas / Ambas) ─ */
+.tipo-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-bottom: 16px;
+  flex-wrap: wrap;
+}
+
+.tipo-label {
+  color: var(--text-1);
+  font-size: 13px;
+}
+
+.tipo-options {
+  display: flex;
+  gap: 8px;
+}
+
 /* ─── Date range ──────────────────────────────── */
 .date-range {
   display: flex;

@@ -20,7 +20,9 @@ def default_values() -> dict[str, object]:
         "CHROME_USER_DATA_DIR": "chrome-profile",
         "CHROME_PROFILE_DIRECTORY": "",
         "CHROME_EXTENSION_DIR": "",
-        "CHROME_EXTENSION_ID": "",
+        # ID da extensao 'Baixar NFSe' na Chrome Web Store (constante).
+        # Preenchido por padrao para deteccao confiavel sem varrer service workers.
+        "CHROME_EXTENSION_ID": "enehmclajcndmgefbmjhecccoegbdgea",
 
         # Portal NFSe / Playwright.
         "NFSE_LOGIN_URL": "https://www.nfse.gov.br/EmissorNacional/Login?ReturnUrl=%2fEmissorNacional",
@@ -35,6 +37,10 @@ def default_values() -> dict[str, object]:
         "PLAYWRIGHT_LOGIN_TIMEOUT_S": 45,
         "PLAYWRIGHT_DOWNLOAD_TIMEOUT_S": 180,
         "PLAYWRIGHT_EXTENSION_TIMEOUT_S": 30,
+        # Espera (s) para o painel da extensao carregar antes de clicar.
+        "NFSE_EXTENSAO_ESPERA_S": 20,
+        # Tentativas de login com certificado (recarrega a pagina entre elas).
+        "NFSE_LOGIN_MAX_TENTATIVAS": 5,
 
         # Seletores com fallback conhecido. Os demais ficam opcionais.
         "NFSE_SELECTOR_LOGIN_OK": "",
@@ -130,6 +136,8 @@ def default_config_text() -> str:
         f"PLAYWRIGHT_LOGIN_TIMEOUT_S = {_literal(values['PLAYWRIGHT_LOGIN_TIMEOUT_S'])}",
         f"PLAYWRIGHT_DOWNLOAD_TIMEOUT_S = {_literal(values['PLAYWRIGHT_DOWNLOAD_TIMEOUT_S'])}",
         f"PLAYWRIGHT_EXTENSION_TIMEOUT_S = {_literal(values['PLAYWRIGHT_EXTENSION_TIMEOUT_S'])}",
+        f"NFSE_EXTENSAO_ESPERA_S = {_literal(values['NFSE_EXTENSAO_ESPERA_S'])}",
+        f"NFSE_LOGIN_MAX_TENTATIVAS = {_literal(values['NFSE_LOGIN_MAX_TENTATIVAS'])}",
         "",
         "# SELETORES DA TELA NFSE",
         f"NFSE_SELECTOR_LOGIN_OK = {_literal(values['NFSE_SELECTOR_LOGIN_OK'])}",
@@ -172,7 +180,11 @@ def ensure_config_file(root: Path | None = None) -> Path:
     return path
 
 
-def apply_defaults(config_module: object, create_dirs: bool = True) -> None:
+def apply_defaults(
+    config_module: object,
+    create_dirs: bool = True,
+    auto_discover: bool = True,
+) -> None:
     values = default_values()
     base_dir = Path(getattr(config_module, "__file__", config_path())).resolve().parent
 
@@ -180,6 +192,19 @@ def apply_defaults(config_module: object, create_dirs: bool = True) -> None:
         current = getattr(config_module, key, None)
         if current is None or (isinstance(current, str) and not current.strip()):
             setattr(config_module, key, default)
+
+    # Auto-descoberta de pastas (certificados no Google Drive, DOMINIO WEB local).
+    # Roda ANTES de resolver PATH_KEYS para preservar o caminho absoluto achado.
+    if auto_discover:
+        try:
+            import path_finder
+
+            # Startup nunca abre dialogo: detecta automaticamente ou deixa em
+            # branco (o frontend pergunta na 1a execucao). Evita travar o boot
+            # do backend enquanto o Electron faz polling de /health.
+            path_finder.auto_discover_into(config_module, interactive=False)
+        except Exception:
+            pass
 
     for key in PATH_KEYS:
         current = getattr(config_module, key, "")
