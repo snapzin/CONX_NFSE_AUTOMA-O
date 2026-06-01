@@ -833,45 +833,92 @@ class NFSePlaywrightRunner:
         log.warning("[%s] Nao detectou inicio de download apos 3 tentativas.",
                     cliente.cnpj)
 
-    def _aguardar_download_em_pasta(self, cliente: Cliente, timeout_s: int = 180) -> Optional[Path]:
+    def _aguardar_download_em_pasta(self, cliente: Cliente, timeout_s: int = 180,
+                                    panel_page=None, pastas=None) -> Optional[Path]:
         """
-        Monitora a pasta Downloads do usuario por novo arquivo .zip (NFSe).
-        Aguarda ate que o download termine (.crdownload some).
-        Retorna o caminho do arquivo final, ou None se timeout.
+        Monitora a pasta Downloads por um NOVO arquivo concluido da extensao.
+
+        A extensao 'Baixar NFSe' salva o arquivo com nome aleatorio (GUID) e
+        muitas vezes SEM a extensao .zip — por isso NAO filtramos por .zip;
+        consideramos qualquer arquivo novo que nao seja parcial (.crdownload/
+        .tmp) e cujo tamanho ja estabilizou (terminou de baixar).
+
+        Retorna o caminho do arquivo final, ou None se nada novo no tempo limite.
         """
         downloads_dir = Path.home() / "Downloads"
-        if not downloads_dir.exists():
-            log.warning("[%s] Pasta Downloads nao existe: %s", cliente.cnpj, downloads_dir)
+        # Vigia a pasta Downloads E pastas extra (ex.: a pasta de saida do
+        # cliente). A extensao 'Baixar NFSe', em modo pasta personalizada,
+        # grava o zip DIRETO na pasta de destino — entao precisamos olhar lah.
+        pastas_vigiadas = [downloads_dir]
+        for p in (pastas or []):
+            if p and Path(p) not in pastas_vigiadas:
+                pastas_vigiadas.append(Path(p))
+        pastas_vigiadas = [p for p in pastas_vigiadas if p.exists()]
+        if not pastas_vigiadas:
+            log.warning("[%s] Nenhuma pasta de download disponivel.", cliente.cnpj)
             return None
 
-        # Snapshot inicial — arquivos ja existentes (ignorar)
-        existentes = {f.name for f in downloads_dir.iterdir() if f.is_file()}
+        parciais_suf = (".crdownload", ".tmp", ".part", ".partial", ".download")
 
+        def _listar(pasta: Path):
+            try:
+                return [f for f in pasta.iterdir() if f.is_file()]
+            except OSError:
+                return []
+
+        # Snapshot inicial por pasta (ignora os arquivos que ja existiam).
+        existentes = {str(p): {f.name for f in _listar(p)} for p in pastas_vigiadas}
+
+        self._sem_notas = False  # sinaliza ao chamador que o painel disse "sem notas"
         deadline = time.monotonic() + timeout_s
         ultimo_log = 0.0
+        ultimo_check_painel = 0.0
+        tamanhos: dict[str, int] = {}  # caminho -> ultimo tamanho (estabilidade)
         while time.monotonic() < deadline:
             _check_cancel(self.cancel_event,
                           f"[{cliente.cnpj}] Cancelado aguardando download.")
 
-            atuais = list(downloads_dir.iterdir())
-            novos = [f for f in atuais if f.is_file() and f.name not in existentes]
-            novos_zip = [f for f in novos if f.suffix.lower() == ".zip"]
-            crdownloads = [f for f in novos if f.name.endswith(".crdownload")]
+            # Se o painel (DOM) avisar que nao ha notas no periodo, encerra ja —
+            # sem esperar o timeout inteiro nem repetir.
+            agora_p = time.monotonic()
+            if panel_page is not None and agora_p - ultimo_check_painel > 2:
+                ultimo_check_painel = agora_p
+                if self._painel_sem_notas(panel_page):
+                    log.info("[%s] Painel: nenhuma nota no periodo. Indo para o proximo.",
+                             cliente.cnpj)
+                    self._sem_notas = True
+                    return None
 
-            if novos_zip and not crdownloads:
-                # Download terminou (.zip presente sem .crdownload pendente)
-                # Pega o mais recente (caso haja varios)
-                mais_recente = max(novos_zip, key=lambda f: f.stat().st_mtime)
-                log.info("[%s] Download detectado: %s", cliente.cnpj, mais_recente.name)
-                return mais_recente
+            novos, em_andamento = [], []
+            for p in pastas_vigiadas:
+                ja = existentes.get(str(p), set())
+                for f in _listar(p):
+                    if f.name in ja:
+                        continue
+                    if f.suffix.lower() in parciais_suf:
+                        em_andamento.append(f)
+                    else:
+                        novos.append(f)
 
-            # Log periodico
+            if novos and not em_andamento:
+                mais_recente = max(novos, key=lambda f: f.stat().st_mtime)
+                try:
+                    tam = mais_recente.stat().st_size
+                except OSError:
+                    tam = -1
+                # So aceita quando o tamanho repetir (arquivo terminou de escrever).
+                if tam > 0 and tamanhos.get(str(mais_recente)) == tam:
+                    log.info("[%s] Download concluido detectado: %s (%d bytes)",
+                             cliente.cnpj, mais_recente.name, tam)
+                    return mais_recente
+                tamanhos[str(mais_recente)] = tam
+
             agora = time.monotonic()
             if agora - ultimo_log > 10:
                 ultimo_log = agora
-                if crdownloads:
+                if em_andamento:
                     log.info("[%s] Aguardando download (em andamento: %s)",
-                             cliente.cnpj, crdownloads[0].name)
+                             cliente.cnpj, em_andamento[0].name)
                 else:
                     log.info("[%s] Aguardando download (nenhum arquivo novo ainda)...",
                              cliente.cnpj)
@@ -976,9 +1023,8 @@ class NFSePlaywrightRunner:
                             for p in context.pages:
                                 if p.url.startswith(prefix):
                                     return p
-                            # Se nao virou page do Playwright, ja sabemos o targetId
-                            # Devolve um objeto pseudo-page que usa CDP direto
-                            return _SidePanelViaCdp(cdp, tid, url)
+                            # Atachou mas nao virou Page do Playwright — sem
+                            # driver CDP direto disponivel; segue tentando/None.
                         except Exception as e:
                             log.debug("Attach falhou: %s", e)
                 except Exception:
@@ -999,6 +1045,69 @@ class NFSePlaywrightRunner:
 
             time.sleep(0.3)
         return None
+
+    def _obter_pagina_painel(self, context, ext_id: str, page_portal, timeout_s: int = 6):
+        """Tenta obter o side panel como uma Page do Playwright (para controle
+        por DOM). Retorna a Page ou None se nao estiver acessivel."""
+        try:
+            cdp = context.new_cdp_session(page_portal)
+        except Exception:
+            cdp = None
+        try:
+            return self._aguardar_pagina_extensao(context, ext_id, timeout_s=timeout_s, cdp=cdp)
+        except Exception as e:
+            log.debug("Nao obteve page do painel: %s", e)
+            return None
+
+    def _baixar_via_dom(self, panel_page, tipo: str, params: Parametros, cliente: Cliente) -> bool:
+        """Configura tipo + datas e dispara o download pelo DOM do painel
+        (confiavel — sem pixel/foco). Retorna True se acionou o download.
+
+        Seletores do popup.html da extensao 'Baixar NFSe':
+          .nfse-type-btn (Emitidas/Recebidas) | #dateStart | #dateEnd | #startDownloadBtn
+        """
+        try:
+            label = "Recebidas" if tipo == "recebidas" else "Emitidas"
+
+            # 1. Seleciona o tipo (clicar seta data-nfse-type no body do painel).
+            try:
+                panel_page.locator(".nfse-type-btn", has_text=label).first.click(timeout=6000)
+            except Exception:
+                # Fallback: seta o atributo direto, caso o clique falhe.
+                panel_page.evaluate(
+                    "(t) => document.body.setAttribute('data-nfse-type', t)", label
+                )
+
+            # 2. Preenche as datas (input type=date espera yyyy-mm-dd).
+            di = _data_br_para_iso(params.data_inicio)
+            df = _data_br_para_iso(params.data_fim)
+            for sel, val in (("#dateStart", di), ("#dateEnd", df)):
+                try:
+                    panel_page.fill(sel, val, timeout=4000)
+                    panel_page.dispatch_event(sel, "change")
+                except Exception as e:
+                    log.debug("[%s] Falha ao preencher %s: %s", cliente.cnpj, sel, e)
+
+            # 3. Dispara o download.
+            panel_page.click("#startDownloadBtn", timeout=6000)
+            log.info("[%s] Download de %s acionado via DOM (datas %s a %s).",
+                     cliente.cnpj, tipo, di, df)
+            return True
+        except Exception as e:
+            log.warning("[%s] Falha ao baixar via DOM: %s", cliente.cnpj, e)
+            return False
+
+    def _painel_sem_notas(self, panel_page) -> bool:
+        """Le o #status do painel da extensao. True se indicar que NAO ha notas
+        no periodo (ex.: 'Nenhuma nota com competencia ...')."""
+        if panel_page is None:
+            return False
+        try:
+            txt = panel_page.locator("#status").inner_text(timeout=1500)
+        except Exception:
+            return False
+        t = (txt or "").lower()
+        return "nenhuma nota" in t
 
     def _baixar_tipo_extensao(
         self,
@@ -1033,33 +1142,63 @@ class NFSePlaywrightRunner:
             time.sleep(espera)
             self._salvar_screenshot_debug(cliente, f"00_panel_aberto_{tipo}")
 
-            # 3. Clica no botao "Emitidas" ou "Recebidas" via pyautogui (coords da side panel)
-            self._clicar_tipo_no_panel(tipo, cliente)
-            time.sleep(0.8)
+            # 3-5. Configura tipo + datas e dispara o download. PREFERE controle
+            #      por DOM (confiavel: clica/seleciona por seletor e ja preenche
+            #      o periodo); se o painel nao estiver acessivel via Playwright,
+            #      cai para o metodo por tela (pyautogui). Com retry.
+            tentativas_dl = max(1, int(getattr(config, "NFSE_DOWNLOAD_TENTATIVAS", 2)))
+            novo_arquivo = None
+            for tnt in range(1, tentativas_dl + 1):
+                _check_cancel(self.cancel_event, f"[{cliente.cnpj}] Cancelado ao baixar {tipo}.")
 
-            # 4. Clica em "Iniciar Download" (botao verde no fim da secao)
-            self._clicar_iniciar_download(cliente)
-            log.info("[%s] %s: download iniciado, monitorando pasta...", cliente.cnpj, tipo)
+                acionou = False
+                panel_page = self._obter_pagina_painel(context, ext_id, page_portal)
+                if panel_page is not None:
+                    acionou = self._baixar_via_dom(panel_page, tipo, params, cliente)
 
-            # 5. Monitora a pasta Downloads do usuario por novo arquivo .zip
-            novo_arquivo = self._aguardar_download_em_pasta(
-                cliente, timeout_s=self.download_timeout_s,
-            )
+                if not acionou:
+                    log.info("[%s] Painel via DOM indisponivel; usando metodo por tela.",
+                             cliente.cnpj)
+                    self._clicar_tipo_no_panel(tipo, cliente)
+                    time.sleep(0.8)
+                    self._clicar_iniciar_download(cliente)
+
+                log.info("[%s] %s: download acionado (tentativa %d/%d), monitorando...",
+                         cliente.cnpj, tipo, tnt, tentativas_dl)
+                novo_arquivo = self._aguardar_download_em_pasta(
+                    cliente, timeout_s=self.download_timeout_s, panel_page=panel_page,
+                    pastas=[output_dir],
+                )
+                if novo_arquivo is not None:
+                    break
+                # Painel informou que nao ha notas: nao adianta repetir, vai pro proximo.
+                if getattr(self, "_sem_notas", False):
+                    log.info("[%s] %s: sem notas no periodo.", cliente.cnpj, tipo)
+                    return 0, ""
+                if tnt < tentativas_dl:
+                    log.warning("[%s] Nenhum download de %s detectado; tentando de novo...",
+                                cliente.cnpj, tipo)
+                    time.sleep(2)
 
             if novo_arquivo is None:
-                log.info("[%s] Nenhum download de %s detectado no periodo.", cliente.cnpj, tipo)
+                log.info("[%s] Nenhum download de %s apos %d tentativa(s). Indo para o proximo.",
+                         cliente.cnpj, tipo, tentativas_dl)
                 return 0, ""
 
-            # 6. Move pro output_dir do cliente
-            fname = _nome_download_cliente(cliente.cnpj, novo_arquivo.name)
+            # 6. Renomeia para o NOME DA EMPRESA (move da Downloads se preciso;
+            #    se o arquivo ja caiu na pasta de saida com nome GUID, renomeia
+            #    no lugar).
+            fname = _nome_download_cliente(cliente.nome, cliente.cnpj, novo_arquivo.name, tipo)
             dest = output_dir / fname
             try:
-                if dest.exists():
-                    dest.unlink()
-                import shutil
-                shutil.move(str(novo_arquivo), str(dest))
+                if novo_arquivo.resolve() != dest.resolve():
+                    if dest.exists():
+                        dest.unlink()
+                    import shutil
+                    shutil.move(str(novo_arquivo), str(dest))
+                    log.info("[%s] Arquivo renomeado para: %s", cliente.cnpj, dest.name)
             except Exception as e:
-                log.warning("[%s] Falha ao mover %s -> %s: %s",
+                log.warning("[%s] Falha ao renomear/mover %s -> %s: %s",
                             cliente.cnpj, novo_arquivo, dest, e)
                 dest = novo_arquivo
 
@@ -1622,6 +1761,7 @@ class NFSePlaywrightRunner:
                         botao.click()
                     download = download_info.value
                     destino = output_dir / _nome_download_cliente(
+                        cliente.nome,
                         cliente.cnpj,
                         download.suggested_filename,
                     )
@@ -1740,13 +1880,18 @@ def _aguardar_novo_arquivo(
     return None
 
 
-def _nome_download_cliente(cnpj: str, suggested: str) -> str:
+def _nome_download_cliente(nome_empresa: str, cnpj: str, suggested: str, tipo: str = "") -> str:
+    """Nome do arquivo baixado com o NOME DA EMPRESA.
+
+    Formato: '<EMPRESA>_<tipo>_<timestamp>.<ext>'. Usa o nome da empresa
+    (sanitizado p/ nome de arquivo valido); cai para o CNPJ se nao houver nome.
+    """
     suggested = (suggested or "").strip()
-    if not suggested:
-        suggested = "nfse.zip"
     suffix = Path(suggested).suffix or ".zip"
     stamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-    return f"{cnpj}_{stamp}{suffix}"
+    base = _sanitizar_nome_pasta(nome_empresa) if (nome_empresa or "").strip() else (cnpj or "nfse")
+    partes = [p for p in (base, (tipo or "").strip(), stamp) if p]
+    return f"{'_'.join(partes)}{suffix}"
 
 
 def _mes_anterior() -> tuple[str, str]:

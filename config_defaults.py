@@ -41,6 +41,8 @@ def default_values() -> dict[str, object]:
         "NFSE_EXTENSAO_ESPERA_S": 20,
         # Tentativas de login com certificado (recarrega a pagina entre elas).
         "NFSE_LOGIN_MAX_TENTATIVAS": 5,
+        # Tentativas de acionar o download de cada tipo antes de pular.
+        "NFSE_DOWNLOAD_TENTATIVAS": 2,
 
         # Seletores com fallback conhecido. Os demais ficam opcionais.
         "NFSE_SELECTOR_LOGIN_OK": "",
@@ -138,6 +140,7 @@ def default_config_text() -> str:
         f"PLAYWRIGHT_EXTENSION_TIMEOUT_S = {_literal(values['PLAYWRIGHT_EXTENSION_TIMEOUT_S'])}",
         f"NFSE_EXTENSAO_ESPERA_S = {_literal(values['NFSE_EXTENSAO_ESPERA_S'])}",
         f"NFSE_LOGIN_MAX_TENTATIVAS = {_literal(values['NFSE_LOGIN_MAX_TENTATIVAS'])}",
+        f"NFSE_DOWNLOAD_TENTATIVAS = {_literal(values['NFSE_DOWNLOAD_TENTATIVAS'])}",
         "",
         "# SELETORES DA TELA NFSE",
         f"NFSE_SELECTOR_LOGIN_OK = {_literal(values['NFSE_SELECTOR_LOGIN_OK'])}",
