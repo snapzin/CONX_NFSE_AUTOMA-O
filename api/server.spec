@@ -18,6 +18,9 @@ PW_DIR = Path(_pw.__file__).parent
 datas = []
 datas += collect_data_files("playwright")
 datas += [(str(PW_DIR / "driver"), "playwright/driver")]
+# license.py e carregado em runtime por caminho de arquivo (nao import) — precisa
+# existir em disco ao lado do server.exe.
+datas += [(str(SPEC_DIR / "license.py"), ".")]
 
 # ── Imports ocultos ────────────────────────────────────────────────────────────
 hiddenimports = []
@@ -26,6 +29,10 @@ hiddenimports += collect_submodules("uvicorn")
 hiddenimports += collect_submodules("fastapi")
 hiddenimports += collect_submodules("starlette")
 hiddenimports += collect_submodules("anyio")
+# requests e usado pelo license.py (carregado em runtime por caminho, entao o
+# PyInstaller nao detecta sozinho). Inclui requests + cadeia de dependencias.
+hiddenimports += collect_submodules("requests")
+hiddenimports += ["requests", "urllib3", "certifi", "charset_normalizer", "idna"]
 hiddenimports += [
     "cryptography", "cryptography.hazmat.primitives",
     "cryptography.hazmat.backends.openssl",
