@@ -6,8 +6,11 @@ import { Redis } from '@upstash/redis';
 let _redis = null;
 export function redis() {
   if (_redis) return _redis;
-  if (process.env.UPSTASH_REDIS_REST_URL && process.env.UPSTASH_REDIS_REST_TOKEN) {
-    _redis = Redis.fromEnv();
+  // Aceita os dois padroes de nome: integracao Vercel (KV_*) e Upstash direto.
+  const url = process.env.KV_REST_API_URL || process.env.UPSTASH_REDIS_REST_URL;
+  const token = process.env.KV_REST_API_TOKEN || process.env.UPSTASH_REDIS_REST_TOKEN;
+  if (url && token) {
+    _redis = new Redis({ url, token });
   }
   return _redis;
 }
