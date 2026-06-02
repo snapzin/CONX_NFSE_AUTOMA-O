@@ -26,7 +26,6 @@ hiddenimports += collect_submodules("uvicorn")
 hiddenimports += collect_submodules("fastapi")
 hiddenimports += collect_submodules("starlette")
 hiddenimports += collect_submodules("anyio")
-hiddenimports += collect_submodules("babel")
 hiddenimports += [
     "cryptography", "cryptography.hazmat.primitives",
     "cryptography.hazmat.backends.openssl",
@@ -36,8 +35,6 @@ hiddenimports += [
     "email.mime.multipart", "email.mime.text",
     "nfse_automacao", "cert_reader", "dominio_importer", "config_defaults",
     "path_finder", "runtime_settings",
-    # tkinter (leve) p/ seletor de pasta no fallback "perguntar na 1a execucao"
-    "tkinter", "tkinter.filedialog",
 ]
 
 # ── Análise ────────────────────────────────────────────────────────────────────
@@ -52,7 +49,10 @@ a = Analysis(
     runtime_hooks=[],
     excludes=[
         "config",                  # fica externo, ao lado do server.exe
+        # GUI/extras nao usados pelo backend (enxuga o bundle):
         "customtkinter", "tkcalendar", "PIL",
+        "tkinter",                 # seletor de pasta agora e feito no Electron
+        "babel",                   # dep da GUI; backend nao usa (~31 MB)
         "notebook", "IPython", "matplotlib", "selenium",
     ],
     noarchive=False,
