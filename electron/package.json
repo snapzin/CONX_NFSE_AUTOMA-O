@@ -1,6 +1,6 @@
 {
   "name": "nfse-automacao",
-  "version": "2.3.0",
+  "version": "2.4.0",
   "description": "Automação NFSe com Electron + FastAPI",
   "main": "main.js",
   "homepage": "./",
@@ -20,6 +20,7 @@
   "author": "CONX Contabilidade",
   "license": "proprietary",
   "dependencies": {
+    "electron-updater": "^6.8.3",
     "framer-motion": "^11.0.0",
     "react": "^18.3.0",
     "react-dom": "^18.3.0"
@@ -46,14 +47,18 @@
       {
         "from": "../dist/server",
         "to": "backend",
-        "filter": ["**/*"]
+        "filter": [
+          "**/*"
+        ]
       }
     ],
     "mac": {
       "target": [
         {
           "target": "dmg",
-          "arch": ["x64"]
+          "arch": [
+            "x64"
+          ]
         }
       ],
       "category": "public.app-category.business",
@@ -63,7 +68,9 @@
       "target": [
         {
           "target": "nsis",
-          "arch": ["x64"]
+          "arch": [
+            "x64"
+          ]
         }
       ],
       "requestedExecutionLevel": "requireAdministrator",
@@ -78,6 +85,13 @@
       "shortcutName": "NFSe Automacao",
       "installerIcon": "assets/icon.ico",
       "uninstallerIcon": "assets/icon.ico"
-    }
+    },
+    "publish": [
+      {
+        "provider": "github",
+        "owner": "snapzin",
+        "repo": "CONX_NFSE_AUTOMA-O"
+      }
+    ]
   }
 }

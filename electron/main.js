@@ -4,6 +4,11 @@ const { randomBytes } = require('crypto');
 const path = require('path');
 const fs = require('fs');
 
+// Auto-update via GitHub Releases (repo publico snapzin/CONX_NFSE_AUTOMA-O).
+// Só roda no app empacotado; em dev é ignorado.
+let autoUpdater = null;
+try { ({ autoUpdater } = require('electron-updater')); } catch (_) {}
+
 // Token gerado a cada startup — passado ao Python via env var e incluído em todas as chamadas à API local
 const API_TOKEN = randomBytes(32).toString('hex');
 
@@ -254,6 +259,25 @@ app.on('ready', async () => {
       splashWindow.close();
     }
     createWindow();
+
+    // Verifica atualizacao (so no app empacotado). Baixa em segundo plano e
+    // instala ao fechar; avisa o usuario quando estiver pronta.
+    if (autoUpdater && app.isPackaged) {
+      autoUpdater.autoDownload = true;
+      autoUpdater.on('update-downloaded', (info) => {
+        if (mainWindow && !mainWindow.isDestroyed()) {
+          dialog.showMessageBox(mainWindow, {
+            type: 'info',
+            title: 'Atualizacao disponivel',
+            message: `Nova versao ${info?.version || ''} baixada.`,
+            detail: 'O app vai reiniciar para aplicar a atualizacao.',
+            buttons: ['Reiniciar agora', 'Depois'],
+          }).then((r) => { if (r.response === 0) autoUpdater.quitAndInstall(); });
+        }
+      });
+      autoUpdater.on('error', (e) => console.warn('[AutoUpdate]', e?.message));
+      autoUpdater.checkForUpdates().catch((e) => console.warn('[AutoUpdate]', e?.message));
+    }
   } catch (error) {
     console.error('[Main] Erro fatal:', error);
     app.quit();
