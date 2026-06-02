@@ -1,9 +1,7 @@
 {
   "version": 2,
   "functions": {
-    "api/validate.js": {
-      "maxDuration": 5,
-      "memory": 128
-    }
+    "api/validate.js": { "maxDuration": 5, "memory": 128 },
+    "api/admin.js": { "maxDuration": 10, "memory": 128 }
   }
 }

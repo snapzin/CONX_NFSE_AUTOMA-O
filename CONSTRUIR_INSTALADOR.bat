@@ -1,6 +1,19 @@
 @echo off
 setlocal enabledelayedexpansion
 title NFSe Automacao - Construir Instalador
+
+REM ============================================================
+REM  Auto-elevacao: o electron-builder precisa criar symlinks
+REM  (winCodeSign) — sem admin a extracao falha com
+REM  "O cliente nao tem o privilegio necessario".
+REM ============================================================
+net session >nul 2>&1
+if errorlevel 1 (
+  echo Solicitando permissao de administrador para gerar o instalador...
+  powershell -NoProfile -Command "Start-Process -FilePath '%~f0' -Verb RunAs"
+  exit /b
+)
+
 cd /d "%~dp0"
 
 echo.
@@ -39,8 +52,10 @@ REM ═════════════════════════�
 REM  [1/5] Dependencias Python
 REM ════════════════════════════════════════════════════════════════
 echo [1/5] Instalando dependencias Python...
-python -m pip install --quiet --upgrade pyinstaller
-python -m pip install --quiet -r requirements.txt
+set "PYEXE=python"
+if exist ".venv\Scripts\python.exe" set "PYEXE=.venv\Scripts\python.exe"
+"%PYEXE%" -m pip install --quiet --upgrade pyinstaller
+"%PYEXE%" -m pip install --quiet -r requirements.txt
 if errorlevel 1 (
     echo [ERRO] Falha ao instalar dependencias Python.
     pause & exit /b 1
@@ -62,7 +77,7 @@ REM ═════════════════════════�
 REM  [3/5] Compilar backend Python -> dist\server\server.exe
 REM ════════════════════════════════════════════════════════════════
 echo [3/5] Compilando backend Python (pode levar 3-5 minutos)...
-python -m PyInstaller api\server.spec --noconfirm --clean
+"%PYEXE%" -m PyInstaller api\server.spec --noconfirm --clean
 if errorlevel 1 (
     echo.
     echo [ERRO] Falha ao compilar o backend Python. Veja mensagens acima.

@@ -1,0 +1,194 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<meta name="robots" content="noindex, nofollow" />
+<title>CONX • Licenças NFSe</title>
+<style>
+  :root { --bg:#0b0b0c; --card:#161618; --line:#2a2a2e; --txt:#f2f2f3; --txt2:#9a9aa2;
+          --ok:#34c759; --warn:#ffcc00; --err:#ff453a; --accent:#34c759; }
+  * { box-sizing:border-box; }
+  body { margin:0; background:var(--bg); color:var(--txt); font:14px/1.5 system-ui,Segoe UI,Roboto,sans-serif; }
+  header { padding:18px 24px; border-bottom:1px solid var(--line); display:flex; align-items:center; gap:14px; }
+  header h1 { font-size:16px; margin:0; letter-spacing:.5px; }
+  header .sp { flex:1; }
+  .wrap { padding:22px 24px; max-width:1200px; margin:0 auto; }
+  .muted { color:var(--txt2); }
+  button { cursor:pointer; border:1px solid var(--line); background:#1f1f23; color:var(--txt);
+           border-radius:8px; padding:7px 12px; font-size:13px; }
+  button:hover { border-color:#3a3a40; }
+  button.primary { background:var(--accent); color:#04140a; border-color:transparent; font-weight:600; }
+  button.danger { color:var(--err); }
+  input, select { background:#0f0f11; border:1px solid var(--line); color:var(--txt);
+                  border-radius:8px; padding:8px 10px; font-size:13px; }
+  .card { background:var(--card); border:1px solid var(--line); border-radius:12px; padding:16px; margin-bottom:18px; }
+  .row { display:flex; gap:10px; flex-wrap:wrap; align-items:flex-end; }
+  .fld { display:flex; flex-direction:column; gap:4px; }
+  .fld label { font-size:11px; color:var(--txt2); }
+  table { width:100%; border-collapse:collapse; }
+  th, td { text-align:left; padding:10px 8px; border-bottom:1px solid var(--line); vertical-align:top; }
+  th { font-size:11px; color:var(--txt2); text-transform:uppercase; letter-spacing:.5px; }
+  .keymono { font-family:ui-monospace,Consolas,monospace; font-size:12px; letter-spacing:.04em; }
+  .badge { display:inline-block; padding:2px 8px; border-radius:99px; font-size:11px; font-weight:600; }
+  .b-ok { background:rgba(52,199,89,.15); color:var(--ok); }
+  .b-blk { background:rgba(255,69,58,.15); color:var(--err); }
+  .b-exp { background:rgba(255,204,0,.15); color:var(--warn); }
+  .machines { font-size:12px; color:var(--txt2); }
+  .machines .m { display:flex; justify-content:space-between; gap:8px; padding:2px 0; }
+  .toast { position:fixed; bottom:18px; right:18px; background:#1f1f23; border:1px solid var(--line);
+           padding:12px 16px; border-radius:10px; opacity:0; transition:.2s; }
+  .toast.show { opacity:1; }
+  #login { max-width:420px; margin:12vh auto; }
+  .hidden { display:none; }
+  .actions { display:flex; gap:6px; flex-wrap:wrap; }
+</style>
+</head>
+<body>
+
+<div id="login" class="card">
+  <h1 style="margin-top:0">🔐 Painel de Licenças CONX</h1>
+  <p class="muted">Informe o token de administrador.</p>
+  <div class="row">
+    <div class="fld" style="flex:1">
+      <label>Admin token</label>
+      <input id="token" type="password" placeholder="ADMIN_TOKEN" />
+    </div>
+    <button class="primary" onclick="entrar()">Entrar</button>
+  </div>
+  <p id="loginErr" class="muted"></p>
+</div>
+
+<div id="app" class="hidden">
+  <header>
+    <strong>CONX</strong> <span class="muted">Licenças NFSe</span>
+    <span class="sp"></span>
+    <span id="stat" class="muted"></span>
+    <button onclick="carregar()">Atualizar</button>
+    <button class="danger" onclick="sair()">Sair</button>
+  </header>
+
+  <div class="wrap">
+    <div class="card">
+      <h3 style="margin-top:0">➕ Nova licença</h3>
+      <div class="row">
+        <div class="fld" style="flex:2"><label>Cliente / empresa</label><input id="c_name" placeholder="Ex.: Luz em Foco" /></div>
+        <div class="fld"><label>Máquinas</label><input id="c_max" type="number" min="1" value="1" style="width:90px" /></div>
+        <div class="fld"><label>Validade (dias, vazio = sem)</label><input id="c_days" type="number" min="1" placeholder="∞" style="width:150px" /></div>
+        <div class="fld" style="flex:1"><label>Chave (vazio = gerar)</label><input id="c_key" placeholder="auto" /></div>
+        <button class="primary" onclick="criar()">Criar licença</button>
+      </div>
+    </div>
+
+    <div class="card">
+      <div class="row" style="margin-bottom:10px">
+        <input id="filtro" placeholder="Filtrar por cliente ou chave..." style="flex:1" oninput="render()" />
+      </div>
+      <table>
+        <thead><tr>
+          <th>Cliente</th><th>Chave</th><th>Status</th><th>Máquinas</th>
+          <th>Validade</th><th>Último acesso</th><th>Ações</th>
+        </tr></thead>
+        <tbody id="tbody"><tr><td colspan="7" class="muted">Carregando...</td></tr></tbody>
+      </table>
+    </div>
+  </div>
+</div>
+
+<div id="toast" class="toast"></div>
+
+<script>
+const API = '/api/admin';
+let TOKEN = localStorage.getItem('conx_admin_token') || '';
+let DATA = [];
+
+function toast(msg) { const t=document.getElementById('toast'); t.textContent=msg; t.classList.add('show'); setTimeout(()=>t.classList.remove('show'),2600); }
+
+async function api(op, extra={}) {
+  const r = await fetch(API, { method:'POST', headers:{'Content-Type':'application/json','x-admin-token':TOKEN}, body:JSON.stringify({op, ...extra}) });
+  const d = await r.json().catch(()=>({ok:false,message:'resposta invalida'}));
+  if (r.status === 401) { sair(); throw new Error('Token invalido'); }
+  if (!d.ok) throw new Error(d.message || 'erro');
+  return d;
+}
+
+async function entrar() {
+  TOKEN = document.getElementById('token').value.trim();
+  try { await api('list'); localStorage.setItem('conx_admin_token', TOKEN);
+    document.getElementById('login').classList.add('hidden');
+    document.getElementById('app').classList.remove('hidden'); carregar();
+  } catch(e) { document.getElementById('loginErr').textContent = '❌ ' + e.message; }
+}
+function sair() { localStorage.removeItem('conx_admin_token'); location.reload(); }
+
+async function carregar() {
+  try { const d = await api('list'); DATA = d.items || [];
+    document.getElementById('stat').textContent = d.total + ' licença(s)';
+    render();
+  } catch(e) { toast('Erro: ' + e.message); }
+}
+
+function fmtDate(iso) { if(!iso) return '—'; const d=new Date(iso); return d.toLocaleString('pt-BR',{day:'2-digit',month:'2-digit',year:'2-digit',hour:'2-digit',minute:'2-digit'}); }
+function isExpired(it) { return it.expiresAt && Date.now() > new Date(it.expiresAt).getTime(); }
+
+function render() {
+  const f = (document.getElementById('filtro').value||'').toLowerCase();
+  const tb = document.getElementById('tbody');
+  const items = DATA.filter(it => !f || (it.clientName||'').toLowerCase().includes(f) || it.key.toLowerCase().includes(f.replace(/[^a-z0-9]/g,'')));
+  if (!items.length) { tb.innerHTML = '<tr><td colspan="7" class="muted">Nenhuma licença.</td></tr>'; return; }
+  tb.innerHTML = items.map(it => {
+    const badge = it.status==='blocked' ? '<span class="badge b-blk">BLOQUEADA</span>'
+                : isExpired(it) ? '<span class="badge b-exp">EXPIRADA</span>'
+                : '<span class="badge b-ok">ATIVA</span>';
+    const machs = Object.entries(it.machines||{}).map(([id,m])=>
+      `<div class="m"><span class="keymono">${id.slice(0,16)}</span><span>${fmtDate(m.lastSeen)} <button class="danger" style="padding:1px 6px" onclick="rmMachine('${it.key}','${id}')">×</button></span></div>`).join('') || '<span class="muted">nenhuma</span>';
+    return `<tr>
+      <td><strong>${esc(it.clientName)||'<span class=muted>—</span>'}</strong>${it.notes?`<br><span class="muted">${esc(it.notes)}</span>`:''}</td>
+      <td class="keymono">${it.keyFmt}</td>
+      <td>${badge}</td>
+      <td><div class="machines">${it.machineCount}/${it.maxMachines}${machs?'<br>'+machs:''}</div></td>
+      <td>${it.expiresAt?fmtDate(it.expiresAt):'<span class="muted">sem</span>'}</td>
+      <td>${fmtDate(it.lastSeen)}</td>
+      <td><div class="actions">
+        ${it.status==='blocked'
+          ? `<button onclick="setStatus('${it.key}','unblock')">Desbloquear</button>`
+          : `<button class="danger" onclick="setStatus('${it.key}','block')">Bloquear</button>`}
+        <button onclick="editar('${it.key}')">Editar</button>
+        <button onclick="copiar('${it.keyFmt}')">Copiar</button>
+        <button class="danger" onclick="apagar('${it.key}')">Excluir</button>
+      </div></td>
+    </tr>`;
+  }).join('');
+}
+function esc(s){ return String(s||'').replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c])); }
+
+async function criar() {
+  const clientName=document.getElementById('c_name').value.trim();
+  const maxMachines=Number(document.getElementById('c_max').value||1);
+  const daysRaw=document.getElementById('c_days').value;
+  const key=document.getElementById('c_key').value.trim();
+  if(!clientName){ toast('Informe o cliente.'); return; }
+  try { const d = await api('create',{clientName,maxMachines,days:daysRaw===''?null:Number(daysRaw),key:key||undefined});
+    document.getElementById('c_name').value=''; document.getElementById('c_days').value=''; document.getElementById('c_key').value='';
+    await navigator.clipboard?.writeText(d.keyFmt).catch(()=>{});
+    toast('Criada: '+d.keyFmt+' (copiada)'); carregar();
+  } catch(e){ toast('Erro: '+e.message); }
+}
+async function setStatus(key,op){ try{ await api(op,{key}); carregar(); }catch(e){ toast('Erro: '+e.message);} }
+async function rmMachine(key,machine_id){ if(!confirm('Liberar esta máquina da licença?'))return; try{ await api('removeMachine',{key,machine_id}); carregar(); }catch(e){ toast('Erro: '+e.message);} }
+async function apagar(key){ if(!confirm('Excluir esta licença? O cliente perde o acesso.'))return; try{ await api('delete',{key}); carregar(); }catch(e){ toast('Erro: '+e.message);} }
+async function editar(key){
+  const it = DATA.find(x=>x.key===key); if(!it) return;
+  const name = prompt('Cliente:', it.clientName||''); if(name===null) return;
+  const max = prompt('Máximo de máquinas:', it.maxMachines); if(max===null) return;
+  const days = prompt('Validade em dias a partir de AGORA (vazio = manter; 0 = sem validade):',''); if(days===null) return;
+  const extra = { key, clientName:name, maxMachines:Number(max) };
+  if (days!=='') extra.days = Number(days)===0 ? null : Number(days);
+  try{ await api('update', extra); toast('Atualizada.'); carregar(); }catch(e){ toast('Erro: '+e.message);} }
+function copiar(txt){ navigator.clipboard?.writeText(txt); toast('Chave copiada: '+txt); }
+
+// auto-login se ja tem token salvo
+if (TOKEN) { document.getElementById('token').value = TOKEN; entrar(); }
+</script>
+</body>
+</html>
