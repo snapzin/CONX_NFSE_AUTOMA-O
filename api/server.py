@@ -81,14 +81,27 @@ import importlib.util as _ilu
 import time as _time
 
 def _load_license_module():
-    # license.py fica sempre ao lado de server.py (dentro de api/)
-    _p = Path(__file__).parent / "license.py"
-    if not _p.exists():
+    # Procura license.py em varios locais: ao lado de server.py (dev) e, no app
+    # empacotado, ao lado do server.exe / dentro do bundle (_MEIPASS).
+    _cands = [Path(__file__).parent / "license.py"]
+    if getattr(sys, "frozen", False):
+        _cands.append(Path(sys.executable).parent / "license.py")
+        _meipass = getattr(sys, "_MEIPASS", None)
+        if _meipass:
+            _cands.append(Path(_meipass) / "license.py")
+    _p = next((c for c in _cands if c.exists()), None)
+    if _p is None:
+        logger.error("license.py nao encontrado. Procurei em: %s",
+                     ", ".join(str(c) for c in _cands))
         return None
-    _spec = _ilu.spec_from_file_location("license", _p)
-    _mod  = _ilu.module_from_spec(_spec)
-    _spec.loader.exec_module(_mod)
-    return _mod
+    try:
+        _spec = _ilu.spec_from_file_location("license", _p)
+        _mod  = _ilu.module_from_spec(_spec)
+        _spec.loader.exec_module(_mod)
+        return _mod
+    except Exception as e:
+        logger.error("Falha ao carregar license.py (%s): %s", _p, e)
+        return None
 
 _lic = _load_license_module()
 if _lic:
