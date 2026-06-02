@@ -36,6 +36,7 @@
   "build": {
     "appId": "com.conx.nfse-automacao",
     "productName": "NFSe Automacao",
+    "artifactName": "NFSe-Automacao-Setup-${version}.${ext}",
     "files": [
       "main.js",
       "preload.js",
