@@ -1278,6 +1278,7 @@ function DeveloperPage({ api, toast, logs, jobStatus }) {
 
   const certs = systemInfo?.certs;
   const itens = machines?.itens || [];
+  const maquinas = machines?.maquinas || [];
   const totalMaquinas = itens.reduce((s, i) => s + (i.machineCount || 0), 0);
   const stats = [
     ['Status', jobStatus || 'Pronto'],
@@ -1298,44 +1299,83 @@ function DeveloperPage({ api, toast, logs, jobStatus }) {
         ))}
       </div>
 
-      {/* Maquinas usando o app */}
+      {/* Servidor de licencas + maquinas ativas */}
       <div className="dev-info-box">
         <div className="dev-box-head">
-          <h3>Máquinas usando o app</h3>
+          <h3>Servidor de licenças & máquinas</h3>
           <button className="btn-secondary" type="button" onClick={fetchMachines}>Atualizar</button>
         </div>
+
+        {/* Status de conexao */}
+        <div className="dev-conn">
+          <span className={`dev-dot ${machines?.online ? 'on' : 'off'}`} />
+          <span className="dev-conn-txt">
+            {!machines ? 'Verificando conexão...' : machines.online ? 'Conectado ao servidor' : 'Sem conexão com o servidor'}
+          </span>
+          {machines?.serverUrl && <span className="dev-conn-url">{machines.serverUrl}</span>}
+        </div>
+
         {!machines ? (
           <p className="log-muted">Carregando...</p>
         ) : !machines.configurado ? (
           <p className="log-muted">
-            Defina <code>LICENSE_ADMIN_TOKEN</code> em <code>config.py</code> nesta máquina para ver as
-            licenças e máquinas ativas. (Fica vazio nos clientes, por segurança.)
+            Servidor {machines.online ? 'online' : 'offline'}. Para ver as licenças e máquinas,
+            defina o <code>Token admin</code> em <strong>Configurações</strong> (só nesta máquina).
           </p>
         ) : machines.erro ? (
-          <p className="log-muted">Erro ao consultar o servidor de licenças: {machines.erro}</p>
-        ) : itens.length === 0 ? (
-          <p className="log-muted">Nenhuma licença cadastrada ainda.</p>
+          <p className="log-muted">Erro ao consultar: {machines.erro}</p>
         ) : (
-          <div className="dev-maq-wrap">
-            <table className="dev-maq-table">
-              <thead><tr><th>Cliente</th><th>Status</th><th>Máquinas</th><th>Validade</th><th>Último acesso</th></tr></thead>
-              <tbody>
-                {itens.map((it) => {
-                  const cls = it.status === 'blocked' ? 'badge-blk' : isExpired(it) ? 'badge-exp' : 'badge-ok';
-                  const txt = it.status === 'blocked' ? 'BLOQUEADA' : isExpired(it) ? 'EXPIRADA' : 'ATIVA';
-                  return (
-                    <tr key={it.key}>
-                      <td><strong>{it.clientName || it.keyFmt}</strong></td>
-                      <td><span className={`dev-badge ${cls}`}>{txt}</span></td>
-                      <td>{it.machineCount}/{it.maxMachines}</td>
-                      <td>{it.expiresAt ? fmtDate(it.expiresAt) : 'sem'}</td>
-                      <td>{fmtDate(it.lastSeen)}</td>
-                    </tr>
-                  );
-                })}
-              </tbody>
-            </table>
-          </div>
+          <>
+            <div className="dev-sub">Licenças ({itens.length})</div>
+            {itens.length === 0 ? (
+              <p className="log-muted">Nenhuma licença cadastrada ainda.</p>
+            ) : (
+              <div className="dev-maq-wrap">
+                <table className="dev-maq-table">
+                  <thead><tr><th>Cliente</th><th>Status</th><th>Máquinas</th><th>Validade</th><th>Último acesso</th></tr></thead>
+                  <tbody>
+                    {itens.map((it) => {
+                      const cls = it.status === 'blocked' ? 'badge-blk' : isExpired(it) ? 'badge-exp' : 'badge-ok';
+                      const txt = it.status === 'blocked' ? 'BLOQUEADA' : isExpired(it) ? 'EXPIRADA' : 'ATIVA';
+                      return (
+                        <tr key={it.key}>
+                          <td><strong>{it.clientName || it.keyFmt}</strong></td>
+                          <td><span className={`dev-badge ${cls}`}>{txt}</span></td>
+                          <td>{it.machineCount}/{it.maxMachines}</td>
+                          <td>{it.expiresAt ? fmtDate(it.expiresAt) : 'sem'}</td>
+                          <td>{fmtDate(it.lastSeen)}</td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
+              </div>
+            )}
+
+            <div className="dev-sub" style={{ marginTop: 16 }}>Máquinas com chave ativa ({maquinas.length})</div>
+            {maquinas.length === 0 ? (
+              <p className="log-muted">Nenhuma máquina ativou uma chave ainda.</p>
+            ) : (
+              <div className="dev-maq-wrap">
+                <table className="dev-maq-table">
+                  <thead><tr><th>Cliente</th><th>Máquina (ID)</th><th>Status</th><th>Último acesso</th></tr></thead>
+                  <tbody>
+                    {maquinas.map((m, i) => {
+                      const ativo = m.status !== 'blocked' && !(m.expiresAt && Date.now() > new Date(m.expiresAt).getTime());
+                      return (
+                        <tr key={`${m.machineId}-${i}`}>
+                          <td><strong>{m.cliente}</strong></td>
+                          <td className="dev-mono">{String(m.machineId).slice(0, 18)}…</td>
+                          <td><span className={`dev-badge ${ativo ? 'badge-ok' : 'badge-blk'}`}>{ativo ? 'ATIVA' : 'INATIVA'}</span></td>
+                          <td>{fmtDate(m.lastSeen)}</td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
+              </div>
+            )}
+          </>
         )}
       </div>
 
