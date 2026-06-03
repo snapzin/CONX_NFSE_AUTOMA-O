@@ -424,31 +424,57 @@ async def paths_status():
 
 @app.get("/admin/maquinas")
 async def admin_maquinas():
-    """Lista licencas/maquinas usando o app (consulta o servidor de licenca).
-    So responde dados se LICENSE_ADMIN_TOKEN estiver configurado nesta maquina —
-    nos clientes fica vazio e o painel some."""
+    """Status do servidor de licencas + lista de licencas/maquinas ativas.
+
+    - 'online': o servidor respondeu (conectividade).
+    - 'configurado': LICENSE_ADMIN_TOKEN setado nesta maquina (mostra os dados).
+    - 'itens': licencas com suas maquinas; 'maquinas': lista achatada (1 por
+      maquina ativa) para exibir direto no Modo Dev.
+    """
     url = str(getattr(config, "LICENSE_ADMIN_URL", "") or "").strip()
     token = str(getattr(config, "LICENSE_ADMIN_TOKEN", "") or "").strip()
-    if not token or not url:
-        return {"configurado": False, "itens": []}
+    base = url.split("/api/")[0] if "/api/" in url else url
+    out = {"serverUrl": base, "online": False, "configurado": bool(token),
+           "ok": False, "total": 0, "itens": [], "maquinas": [], "erro": ""}
+    if not url:
+        out["erro"] = "LICENSE_ADMIN_URL nao configurada."
+        return out
     try:
         import requests
-        r = requests.post(
-            url,
-            json={"op": "list"},
-            headers={"x-admin-token": token, "Content-Type": "application/json"},
-            timeout=15,
-        )
-        data = r.json()
-        return {
-            "configurado": True,
-            "ok": bool(data.get("ok")),
-            "total": data.get("total", 0),
-            "itens": data.get("items", []),
-            "erro": "" if data.get("ok") else str(data.get("message", "")),
-        }
+        if token:
+            r = requests.post(
+                url, json={"op": "list"},
+                headers={"x-admin-token": token, "Content-Type": "application/json"},
+                timeout=15,
+            )
+            out["online"] = True
+            data = r.json()
+            out["ok"] = bool(data.get("ok"))
+            out["total"] = data.get("total", 0)
+            out["itens"] = data.get("items", [])
+            if not out["ok"]:
+                out["erro"] = str(data.get("message", ""))
+            # Achata as maquinas (1 entrada por maquina com chave ativa)
+            for it in out["itens"]:
+                for mid, m in (it.get("machines") or {}).items():
+                    out["maquinas"].append({
+                        "cliente": it.get("clientName") or it.get("keyFmt"),
+                        "machineId": mid,
+                        "status": it.get("status", "active"),
+                        "expiresAt": it.get("expiresAt"),
+                        "lastSeen": (m or {}).get("lastSeen"),
+                        "firstSeen": (m or {}).get("firstSeen"),
+                    })
+            out["maquinas"].sort(key=lambda x: x.get("lastSeen") or "", reverse=True)
+        else:
+            # Sem token: so verifica se o servidor esta no ar.
+            requests.get(base, timeout=10)
+            out["online"] = True
+        return out
     except Exception as e:
-        return {"configurado": True, "ok": False, "erro": str(e), "itens": []}
+        out["online"] = False
+        out["erro"] = str(e)
+        return out
 
 
 @app.get("/certificados")
