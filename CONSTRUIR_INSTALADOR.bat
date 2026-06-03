@@ -89,7 +89,10 @@ copy /y "config.py" "dist\server\config.py" >nul
 if errorlevel 1 (
     echo [AVISO] Nao foi possivel copiar config.py para dist\server\
 )
-echo       OK - dist\server\server.exe gerado
+REM SEGURANCA: nunca distribuir o token admin. Zera LICENSE_ADMIN_TOKEN no
+REM config.py empacotado (o admin seta na propria maquina apos instalar).
+powershell -NoProfile -Command "(Get-Content 'dist\server\config.py') -replace '^LICENSE_ADMIN_TOKEN\s*=.*', \"LICENSE_ADMIN_TOKEN = ''\" | Set-Content 'dist\server\config.py' -Encoding UTF8"
+echo       OK - dist\server\server.exe gerado (token admin removido do pacote)
 echo.
 
 REM ════════════════════════════════════════════════════════════════
