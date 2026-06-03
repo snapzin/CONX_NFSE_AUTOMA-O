@@ -1214,6 +1214,7 @@ function DeveloperPage({ api, toast, logs, jobStatus }) {
   const [autoScroll, setAutoScroll] = useState(true);
   const [systemInfo, setSystemInfo] = useState(null);
   const [licenseInfo, setLicenseInfo] = useState(null);
+  const [machines, setMachines] = useState(null);
   const [deactivating, setDeactivating] = useState(false);
   const logsRef = useRef(null);
 
@@ -1222,19 +1223,18 @@ function DeveloperPage({ api, toast, logs, jobStatus }) {
       const cfg = await api.get('/config');
       const certs = await api.get('/certificados').catch(() => null);
       setSystemInfo({ cfg, certs });
-    } catch (e) {
-      // silencioso
-    }
+    } catch (e) { /* silencioso */ }
   }, [api]);
 
   const fetchLicense = useCallback(async () => {
-    try {
-      const result = await api.get('/license/status');
-      setLicenseInfo(result);
-    } catch {
-      setLicenseInfo(null);
-    }
+    try { setLicenseInfo(await api.get('/license/status')); } catch { setLicenseInfo(null); }
   }, [api]);
+
+  const fetchMachines = useCallback(async () => {
+    try { setMachines(await api.get('/admin/maquinas')); } catch { setMachines({ configurado: false, itens: [] }); }
+  }, [api]);
+
+  const refreshAll = useCallback(() => { fetchInfo(); fetchLicense(); fetchMachines(); }, [fetchInfo, fetchLicense, fetchMachines]);
 
   const deactivateLicense = async () => {
     if (!window.confirm('Desativar a licença? O sistema ficará bloqueado até uma nova ativação.')) return;
@@ -1250,7 +1250,7 @@ function DeveloperPage({ api, toast, logs, jobStatus }) {
     }
   };
 
-  useEffect(() => { fetchInfo(); fetchLicense(); }, [fetchInfo, fetchLicense]);
+  useEffect(() => { refreshAll(); }, [refreshAll]);
 
   useEffect(() => {
     if (autoScroll && logsRef.current) {
@@ -1259,80 +1259,122 @@ function DeveloperPage({ api, toast, logs, jobStatus }) {
   }, [logs, autoScroll]);
 
   const filtered = (logs || []).filter((log) => {
-    if (level !== 'all' && String(log.level || '').toUpperCase() !== level.toUpperCase()) {
-      return false;
-    }
-    if (filter && !String(log.message || '').toLowerCase().includes(filter.toLowerCase())) {
-      return false;
-    }
+    if (level !== 'all' && String(log.level || '').toUpperCase() !== level.toUpperCase()) return false;
+    if (filter && !String(log.message || '').toLowerCase().includes(filter.toLowerCase())) return false;
     return true;
   });
 
   const copyLogs = () => {
-    const text = filtered
-      .map((l) => `[${l.level}] ${l.message}`)
-      .join('\n');
-    if (navigator.clipboard && text) {
-      navigator.clipboard.writeText(text);
-      toast('Logs copiados.', 'success');
-    }
+    const text = filtered.map((l) => `[${l.level}] ${l.message}`).join('\n');
+    if (navigator.clipboard && text) { navigator.clipboard.writeText(text); toast('Logs copiados.', 'success'); }
   };
 
+  const fmtDate = (iso) => {
+    if (!iso) return '—';
+    const d = new Date(iso);
+    return isNaN(d) ? '—' : d.toLocaleString('pt-BR', { day: '2-digit', month: '2-digit', year: '2-digit', hour: '2-digit', minute: '2-digit' });
+  };
+  const isExpired = (it) => it.expiresAt && Date.now() > new Date(it.expiresAt).getTime();
+
+  const certs = systemInfo?.certs;
+  const itens = machines?.itens || [];
+  const totalMaquinas = itens.reduce((s, i) => s + (i.machineCount || 0), 0);
+  const stats = [
+    ['Status', jobStatus || 'Pronto'],
+    ['Certificados', certs ? `${certs.validos}/${certs.total}` : '—'],
+    ['Licenças', machines?.configurado ? (machines.total ?? itens.length) : '—'],
+    ['Máquinas ativas', machines?.configurado ? totalMaquinas : '—'],
+  ];
+
   return (
-    <div className="page-inner">
-      <div className="dev-info-box">
-        <h3>Informações do sistema</h3>
-        {systemInfo ? (
-          <div className="dev-info-grid">
-            <div className="info-row"><span className="label">XLSX Path</span><span className="value">{systemInfo.cfg?.values?.XLSX_PATH || '—'}</span></div>
-            <div className="info-row"><span className="label">Pasta certificados</span><span className="value">{systemInfo.cfg?.values?.PASTA_CERTS || '—'}</span></div>
-            <div className="info-row"><span className="label">Pasta saída</span><span className="value">{systemInfo.cfg?.values?.PASTA_SAIDA || '—'}</span></div>
-            <div className="info-row"><span className="label">Chrome User Data</span><span className="value">{systemInfo.cfg?.values?.CHROME_USER_DATA_DIR || '—'}</span></div>
-            <div className="info-row"><span className="label">Extension ID</span><span className="value">{systemInfo.cfg?.values?.CHROME_EXTENSION_ID || '—'}</span></div>
-            <div className="info-row"><span className="label">Status job atual</span><span className="value">{jobStatus || 'Pronto'}</span></div>
-            {systemInfo.certs && (
-              <>
-                <div className="info-row"><span className="label">Certificados (total)</span><span className="value">{systemInfo.certs.total}</span></div>
-                <div className="info-row"><span className="label">Válidos</span><span className="value">{systemInfo.certs.validos}</span></div>
-                <div className="info-row"><span className="label">CNPJs únicos</span><span className="value">{systemInfo.certs.cnpjsUnicos}</span></div>
-                <div className="info-row"><span className="label">CNPJs duplicados</span><span className="value">{systemInfo.certs.cnpjsDuplicados}</span></div>
-              </>
-            )}
+    <div className="page-inner dev-page">
+      {/* Resumo */}
+      <div className="stats-row">
+        {stats.map(([l, v]) => (
+          <div className="stat-card" key={l}>
+            <div className="stat-title">{l}</div>
+            <div className="stat-value">{v}</div>
           </div>
-        ) : (
-          <p style={{ color: 'var(--text-2)', fontSize: 12 }}>Carregando...</p>
-        )}
-        <div className="form-actions" style={{ marginTop: 14 }}>
-          <button className="btn-secondary" type="button" onClick={fetchInfo}>Atualizar</button>
-        </div>
+        ))}
       </div>
 
+      {/* Maquinas usando o app */}
       <div className="dev-info-box">
-        <h3>Licença</h3>
-        {licenseInfo ? (
-          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 16, flexWrap: 'wrap' }}>
-            <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
-              <span style={{ fontSize: 11, color: 'var(--text-2)' }}>Chave ativa</span>
-              <span style={{ fontFamily: 'var(--font-mono)', fontSize: 13, color: licenseInfo.licensed ? 'var(--success)' : 'var(--danger)', letterSpacing: '0.06em' }}>
-                {licenseInfo.key_hint || '—'}
-              </span>
-              <span style={{ fontSize: 11, color: 'var(--text-2)', marginTop: 2 }}>{licenseInfo.message}</span>
-            </div>
-            {licenseInfo.key_hint && (
-              <button
-                className="btn-danger"
-                type="button"
-                onClick={deactivateLicense}
-                disabled={deactivating}
-              >
-                {deactivating ? <Icon.Spinner /> : null}
-                Desativar licença
-              </button>
-            )}
-          </div>
+        <div className="dev-box-head">
+          <h3>Máquinas usando o app</h3>
+          <button className="btn-secondary" type="button" onClick={fetchMachines}>Atualizar</button>
+        </div>
+        {!machines ? (
+          <p className="log-muted">Carregando...</p>
+        ) : !machines.configurado ? (
+          <p className="log-muted">
+            Defina <code>LICENSE_ADMIN_TOKEN</code> em <code>config.py</code> nesta máquina para ver as
+            licenças e máquinas ativas. (Fica vazio nos clientes, por segurança.)
+          </p>
+        ) : machines.erro ? (
+          <p className="log-muted">Erro ao consultar o servidor de licenças: {machines.erro}</p>
+        ) : itens.length === 0 ? (
+          <p className="log-muted">Nenhuma licença cadastrada ainda.</p>
         ) : (
-          <p style={{ color: 'var(--text-2)', fontSize: 12 }}>Carregando...</p>
+          <div className="dev-maq-wrap">
+            <table className="dev-maq-table">
+              <thead><tr><th>Cliente</th><th>Status</th><th>Máquinas</th><th>Validade</th><th>Último acesso</th></tr></thead>
+              <tbody>
+                {itens.map((it) => {
+                  const cls = it.status === 'blocked' ? 'badge-blk' : isExpired(it) ? 'badge-exp' : 'badge-ok';
+                  const txt = it.status === 'blocked' ? 'BLOQUEADA' : isExpired(it) ? 'EXPIRADA' : 'ATIVA';
+                  return (
+                    <tr key={it.key}>
+                      <td><strong>{it.clientName || it.keyFmt}</strong></td>
+                      <td><span className={`dev-badge ${cls}`}>{txt}</span></td>
+                      <td>{it.machineCount}/{it.maxMachines}</td>
+                      <td>{it.expiresAt ? fmtDate(it.expiresAt) : 'sem'}</td>
+                      <td>{fmtDate(it.lastSeen)}</td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
         )}
+      </div>
+
+      {/* Sistema + Licenca lado a lado */}
+      <div className="dev-grid-2">
+        <div className="dev-info-box">
+          <div className="dev-box-head"><h3>Informações do sistema</h3><button className="btn-secondary" type="button" onClick={fetchInfo}>Atualizar</button></div>
+          {systemInfo ? (
+            <div className="dev-info-grid">
+              <div className="info-row"><span className="label">Pasta certificados</span><span className="value">{systemInfo.cfg?.values?.PASTA_CERTS || '—'}</span></div>
+              <div className="info-row"><span className="label">Pasta saída</span><span className="value">{systemInfo.cfg?.values?.PASTA_SAIDA || '—'}</span></div>
+              <div className="info-row"><span className="label">Perfil Chrome</span><span className="value">{systemInfo.cfg?.values?.CHROME_USER_DATA_DIR || '—'}</span></div>
+              <div className="info-row"><span className="label">Extensão (ID)</span><span className="value">{systemInfo.cfg?.values?.CHROME_EXTENSION_ID || '—'}</span></div>
+              {systemInfo.certs && (
+                <>
+                  <div className="info-row"><span className="label">Certificados válidos</span><span className="value">{systemInfo.certs.validos}/{systemInfo.certs.total}</span></div>
+                  <div className="info-row"><span className="label">CNPJs únicos</span><span className="value">{systemInfo.certs.cnpjsUnicos}</span></div>
+                  <div className="info-row"><span className="label">CNPJs duplicados</span><span className="value">{systemInfo.certs.cnpjsDuplicados}</span></div>
+                </>
+              )}
+            </div>
+          ) : <p className="log-muted">Carregando...</p>}
+        </div>
+
+        <div className="dev-info-box">
+          <h3>Licença desta máquina</h3>
+          {licenseInfo ? (
+            <div className="dev-lic">
+              <span className="label">Chave ativa</span>
+              <span className="dev-lic-key" style={{ color: licenseInfo.licensed ? 'var(--success)' : 'var(--danger)' }}>{licenseInfo.key_hint || '—'}</span>
+              <span className="log-muted">{licenseInfo.message}</span>
+              {licenseInfo.key_hint && (
+                <button className="btn-danger" type="button" onClick={deactivateLicense} disabled={deactivating} style={{ marginTop: 10 }}>
+                  {deactivating ? <Icon.Spinner /> : null} Desativar licença
+                </button>
+              )}
+            </div>
+          ) : <p className="log-muted">Carregando...</p>}
+        </div>
       </div>
 
       <div className="logs-box dev-logs-box">

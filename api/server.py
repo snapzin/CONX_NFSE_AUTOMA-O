@@ -264,6 +264,13 @@ async def get_config():
             ],
         },
         {
+            "title": "Licencas (admin — so na maquina do administrador)",
+            "fields": [
+                ("LICENSE_ADMIN_URL", "URL admin do servidor de licencas", "text"),
+                ("LICENSE_ADMIN_TOKEN", "Token admin (para ver as maquinas no Modo Dev)", "text"),
+            ],
+        },
+        {
             "title": "E-mail (Zoho SMTP)",
             "fields": [
                 ("ZOHO_SMTP_HOST", "Host SMTP", "text"),
@@ -413,6 +420,35 @@ async def paths_status():
             "PASTA_SAIDA": sug_saida or saida_path,
         },
     }
+
+
+@app.get("/admin/maquinas")
+async def admin_maquinas():
+    """Lista licencas/maquinas usando o app (consulta o servidor de licenca).
+    So responde dados se LICENSE_ADMIN_TOKEN estiver configurado nesta maquina —
+    nos clientes fica vazio e o painel some."""
+    url = str(getattr(config, "LICENSE_ADMIN_URL", "") or "").strip()
+    token = str(getattr(config, "LICENSE_ADMIN_TOKEN", "") or "").strip()
+    if not token or not url:
+        return {"configurado": False, "itens": []}
+    try:
+        import requests
+        r = requests.post(
+            url,
+            json={"op": "list"},
+            headers={"x-admin-token": token, "Content-Type": "application/json"},
+            timeout=15,
+        )
+        data = r.json()
+        return {
+            "configurado": True,
+            "ok": bool(data.get("ok")),
+            "total": data.get("total", 0),
+            "itens": data.get("items", []),
+            "erro": "" if data.get("ok") else str(data.get("message", "")),
+        }
+    except Exception as e:
+        return {"configurado": True, "ok": False, "erro": str(e), "itens": []}
 
 
 @app.get("/certificados")

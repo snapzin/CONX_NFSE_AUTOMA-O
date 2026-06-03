@@ -59,6 +59,13 @@ def default_values() -> dict[str, object]:
         "XLSX_COLUNA_CNPJ": "CNPJ",
         "XLSX_COLUNA_NOME": "NOME",
 
+        # Painel admin de licencas (Modo Desenvolvedor). O TOKEN fica VAZIO por
+        # padrao de proposito: so a maquina do admin (CONX) preenche; nos
+        # clientes fica vazio -> o painel de maquinas nao aparece e o token nao
+        # e distribuido.
+        "LICENSE_ADMIN_URL": "https://license-server-sigma-topaz.vercel.app/api/admin",
+        "LICENSE_ADMIN_TOKEN": "",
+
         # Dominio Web e e-mail sao opcionais.
         "DOMINIO_WEB_URL": "https://www.dominioweb.com.br/",
         "DOMINIO_WEB_MODULO": "Escrita Fiscal",
