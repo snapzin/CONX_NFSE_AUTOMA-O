@@ -111,6 +111,7 @@ def validate_key(key: str) -> tuple[bool, str]:
                 "key":          normalized,
                 "machine_id":   get_machine_id(),
                 "machine_name": platform.node(),
+                "machine_os":   f"{platform.system()} {platform.release()}",
             },
             headers={"x-client-secret": _CLIENT_SECRET},
             timeout=TIMEOUT_S,

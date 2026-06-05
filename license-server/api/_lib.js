@@ -97,6 +97,19 @@ export const LEGACY_KEYS = (process.env.VALID_KEYS || '')
 // Mantido por compatibilidade com imports existentes
 export function legacyKeys() { return LEGACY_KEYS; }
 
+// ── Geolocalização ────────────────────────────────────────────────────────────
+export async function getGeoIP(ip) {
+  if (!ip || ip === 'unknown' || /^(127\.|10\.|192\.168\.|172\.(1[6-9]|2\d|3[01])\.|::1)/.test(ip)) return null;
+  try {
+    const r = await fetch(
+      `http://ip-api.com/json/${ip}?fields=status,country,countryCode,regionName,city,isp`,
+      { signal: AbortSignal.timeout(3000) }
+    );
+    const d = await r.json();
+    return d.status === 'success' ? d : null;
+  } catch { return null; }
+}
+
 // ── HTTP ──────────────────────────────────────────────────────────────────────
 export function setCors(res, methods = 'POST, OPTIONS') {
   res.setHeader('Access-Control-Allow-Origin', '*');

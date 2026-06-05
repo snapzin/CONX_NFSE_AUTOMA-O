@@ -157,14 +157,23 @@
   .machines-count { font-size: 13px; font-variant-numeric: tabular-nums; }
   .m-toggle { background: transparent; border: none; color: var(--txt-2); font-size: 11px; padding: 2px 4px; min-height: unset; border-radius: 4px; transition: color 120ms; }
   .m-toggle:hover { color: var(--txt-1); }
-  .machines-list { margin-top: 6px; display: flex; flex-direction: column; gap: 4px; }
-  .m { display: flex; justify-content: space-between; align-items: center; gap: 10px; padding: 7px 10px; background: var(--bg-4); border-radius: 8px; border: 1px solid var(--border); }
-  .m-info { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
-  .m-name { font-size: 12px; font-weight: 500; color: var(--txt-1); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-  .m-id-ip { display: flex; align-items: center; gap: 6px; }
-  .m-id-ip .keymono { font-size: 10.5px; }
-  .m-ip { font-size: 10.5px; color: var(--txt-2); font-family: var(--mono); }
-  .m-side { display: flex; align-items: center; gap: 6px; flex-shrink: 0; }
+  .machines-list { margin-top: 6px; display: flex; flex-direction: column; gap: 5px; }
+  .m { display: flex; justify-content: space-between; align-items: flex-start; gap: 10px; padding: 10px 12px; background: var(--bg-4); border-radius: 9px; border: 1px solid var(--border); }
+  .m-info { display: flex; flex-direction: column; gap: 3px; min-width: 0; flex: 1; }
+  .m-row1 { display: flex; align-items: center; gap: 6px; }
+  .m-name { font-size: 12.5px; font-weight: 600; color: var(--txt-1); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .m-os { font-size: 10px; font-weight: 500; color: var(--txt-2); background: var(--bg-3); border: 1px solid var(--border); border-radius: 4px; padding: 1px 6px; white-space: nowrap; flex-shrink: 0; }
+  .m-row2 { display: flex; align-items: center; gap: 5px; flex-wrap: wrap; }
+  .m-ip { font-size: 10.5px; color: var(--txt-1); font-family: var(--mono); font-weight: 500; }
+  .m-sep { font-size: 10px; color: var(--txt-3); }
+  .m-location { font-size: 10.5px; color: var(--ok); font-weight: 500; }
+  .m-row3 { display: flex; align-items: center; gap: 5px; flex-wrap: wrap; }
+  .m-isp { font-size: 10px; color: var(--txt-3); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 200px; }
+  .m-id { font-size: 10px; color: var(--txt-3); font-family: var(--mono); }
+  .m-row4 { display: flex; align-items: center; gap: 4px; }
+  .m-label { font-size: 9.5px; color: var(--txt-3); text-transform: uppercase; letter-spacing: .04em; }
+  .m-date { font-size: 10px; color: var(--txt-2); }
+  .m-side { display: flex; align-items: flex-start; gap: 6px; flex-shrink: 0; padding-top: 2px; }
   .m-time { font-size: 11px; color: var(--txt-2); white-space: nowrap; }
   .actions { display: flex; gap: 5px; flex-wrap: wrap; }
 
@@ -651,20 +660,47 @@ function render() {
     const hasList   = machCount > 0;
     const isExpanded = _expanded.has(it.key);
     const machList = Object.entries(it.machines || {}).map(([id, m]) => {
-      const name    = esc(m.name || '');
-      const mip     = esc(m.ip  || '');
-      const lastRel = m.lastSeen ? relDate(m.lastSeen) : '—';
-      const lastAbs = m.lastSeen ? fmtAbs(m.lastSeen) : '';
+      const name      = esc(m.name || '');
+      const mip       = esc(m.ip   || '');
+      const geo       = m.geo || {};
+      const os        = esc(m.os   || '');
+      const firstAbs  = m.firstSeen ? fmtAbs(m.firstSeen) : '';
+      const lastAbs   = m.lastSeen  ? fmtAbs(m.lastSeen)  : '';
+      const firstRel  = m.firstSeen ? relDate(m.firstSeen) : '—';
+      const lastRel   = m.lastSeen  ? relDate(m.lastSeen)  : '—';
+
+      // Bandeira via regional indicator: BR -> 🇧🇷
+      const flag = geo.countryCode
+        ? String.fromCodePoint(...[...geo.countryCode.toUpperCase()].map(c => 0x1F1E6 + c.charCodeAt(0) - 65))
+        : '';
+      const locationStr = [geo.city, geo.region, (flag ? `${flag} ${geo.country}` : geo.country)].filter(Boolean).join(', ');
+      const ispStr      = geo.isp || '';
+
+      const osIcon = os.toLowerCase().startsWith('win') ? '🪟' : os.toLowerCase().startsWith('mac') || os.toLowerCase().startsWith('darwin') ? '🍎' : os ? '🐧' : '';
+
       return `<div class="m">
         <div class="m-info">
-          <div class="m-name" title="${name || id}">${name || '<span class="muted">máquina desconhecida</span>'}</div>
-          <div class="m-id-ip">
-            <span class="keymono">${id.slice(0, 16)}</span>
-            ${mip ? `<span class="m-ip">· ${mip}</span>` : ''}
+          <div class="m-row1">
+            <span class="m-name" title="${name || id}">💻 ${name || '<span class="muted">máquina desconhecida</span>'}</span>
+            ${os ? `<span class="m-os">${osIcon} ${os}</span>` : ''}
+          </div>
+          ${mip ? `<div class="m-row2">
+            <span class="m-ip">${mip}</span>
+            ${locationStr ? `<span class="m-sep">·</span><span class="m-location">${esc(locationStr)}</span>` : ''}
+          </div>` : ''}
+          ${ispStr ? `<div class="m-row3"><span class="m-isp">📡 ${esc(ispStr)}</span></div>` : ''}
+          <div class="m-row4">
+            <span class="m-label">ID</span>
+            <span class="m-id">${id.slice(0, 20)}…</span>
+            <span class="m-sep">·</span>
+            <span class="m-label">desde</span>
+            <span class="m-date" title="${firstAbs}">${firstRel}</span>
+            <span class="m-sep">·</span>
+            <span class="m-label">visto</span>
+            <span class="m-date" title="${lastAbs}">${lastRel}</span>
           </div>
         </div>
         <div class="m-side">
-          <span class="m-time" title="${lastAbs}">${lastRel}</span>
           <button class="btn-danger btn-sm" onclick="rmMachine('${it.key}','${id}')" title="Liberar máquina">×</button>
         </div>
       </div>`;
