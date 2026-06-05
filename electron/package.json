@@ -1,6 +1,6 @@
 {
   "name": "nfse-automacao",
-  "version": "2.4.3",
+  "version": "2.4.4",
   "description": "Automação NFSe com Electron + FastAPI",
   "main": "main.js",
   "homepage": "./",
