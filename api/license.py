@@ -16,7 +16,7 @@ from pathlib import Path
 
 import requests
 
-VALIDATION_URL = "https://license-server-sigma-topaz.vercel.app/api/validate"
+VALIDATION_URL = "https://nfse-license.vercel.app/api/validate"
 LICENSE_FILE   = Path(__file__).parent.parent / "license.key"
 GRACE_FILE     = Path(__file__).parent.parent / "license.grace"
 TIMEOUT_S      = 8
@@ -107,7 +107,11 @@ def validate_key(key: str) -> tuple[bool, str]:
     try:
         resp  = requests.post(
             VALIDATION_URL,
-            json={"key": normalized, "machine_id": get_machine_id()},
+            json={
+                "key":          normalized,
+                "machine_id":   get_machine_id(),
+                "machine_name": platform.node(),
+            },
             headers={"x-client-secret": _CLIENT_SECRET},
             timeout=TIMEOUT_S,
         )

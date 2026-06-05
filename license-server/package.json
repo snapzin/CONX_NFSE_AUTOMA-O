@@ -5,6 +5,7 @@
   "type": "module",
   "description": "Servidor de licenças NFSe Automacao (validacao + painel admin) no Vercel + Upstash Redis",
   "dependencies": {
-    "@upstash/redis": "^1.34.3"
+    "@upstash/redis": "^1.34.3",
+    "nodemailer": "^6.9.14"
   }
 }

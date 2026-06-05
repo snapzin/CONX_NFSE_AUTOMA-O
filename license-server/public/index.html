@@ -4,191 +4,838 @@
 <meta charset="UTF-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1.0" />
 <meta name="robots" content="noindex, nofollow" />
-<title>CONX • Licenças NFSe</title>
+<title>CONX · Licenças NFSe</title>
 <style>
-  :root { --bg:#0b0b0c; --card:#161618; --line:#2a2a2e; --txt:#f2f2f3; --txt2:#9a9aa2;
-          --ok:#34c759; --warn:#ffcc00; --err:#ff453a; --accent:#34c759; }
-  * { box-sizing:border-box; }
-  body { margin:0; background:var(--bg); color:var(--txt); font:14px/1.5 system-ui,Segoe UI,Roboto,sans-serif; }
-  header { padding:18px 24px; border-bottom:1px solid var(--line); display:flex; align-items:center; gap:14px; }
-  header h1 { font-size:16px; margin:0; letter-spacing:.5px; }
-  header .sp { flex:1; }
-  .wrap { padding:22px 24px; max-width:1200px; margin:0 auto; }
-  .muted { color:var(--txt2); }
-  button { cursor:pointer; border:1px solid var(--line); background:#1f1f23; color:var(--txt);
-           border-radius:8px; padding:7px 12px; font-size:13px; }
-  button:hover { border-color:#3a3a40; }
-  button.primary { background:var(--accent); color:#04140a; border-color:transparent; font-weight:600; }
-  button.danger { color:var(--err); }
-  input, select { background:#0f0f11; border:1px solid var(--line); color:var(--txt);
-                  border-radius:8px; padding:8px 10px; font-size:13px; }
-  .card { background:var(--card); border:1px solid var(--line); border-radius:12px; padding:16px; margin-bottom:18px; }
-  .row { display:flex; gap:10px; flex-wrap:wrap; align-items:flex-end; }
-  .fld { display:flex; flex-direction:column; gap:4px; }
-  .fld label { font-size:11px; color:var(--txt2); }
-  table { width:100%; border-collapse:collapse; }
-  th, td { text-align:left; padding:10px 8px; border-bottom:1px solid var(--line); vertical-align:top; }
-  th { font-size:11px; color:var(--txt2); text-transform:uppercase; letter-spacing:.5px; }
-  .keymono { font-family:ui-monospace,Consolas,monospace; font-size:12px; letter-spacing:.04em; }
-  .badge { display:inline-block; padding:2px 8px; border-radius:99px; font-size:11px; font-weight:600; }
-  .b-ok { background:rgba(52,199,89,.15); color:var(--ok); }
-  .b-blk { background:rgba(255,69,58,.15); color:var(--err); }
-  .b-exp { background:rgba(255,204,0,.15); color:var(--warn); }
-  .machines { font-size:12px; color:var(--txt2); }
-  .machines .m { display:flex; justify-content:space-between; gap:8px; padding:2px 0; }
-  .toast { position:fixed; bottom:18px; right:18px; background:#1f1f23; border:1px solid var(--line);
-           padding:12px 16px; border-radius:10px; opacity:0; transition:.2s; }
-  .toast.show { opacity:1; }
-  #login { max-width:420px; margin:12vh auto; }
-  .hidden { display:none; }
-  .actions { display:flex; gap:6px; flex-wrap:wrap; }
+  :root {
+    --bg:        #080808;
+    --bg-2:      #0d0d0d;
+    --bg-3:      #141414;
+    --bg-4:      #1a1a1a;
+    --border:    #1e1e1e;
+    --border-h:  #2a2a2a;
+    --txt-1:     #f0f0f0;
+    --txt-2:     #686868;
+    --txt-3:     #3a3a3a;
+    --ok:        #34c759;
+    --warn:      #f5a623;
+    --err:       #ff453a;
+    --accent:    #ffffff;
+    --radius:    12px;
+    --radius-sm: 8px;
+    --shadow:    0 8px 28px rgba(0,0,0,.5);
+    --font:      -apple-system, BlinkMacSystemFont, "SF Pro Text", "Segoe UI", sans-serif;
+    --mono:      "SF Mono", "JetBrains Mono", Menlo, monospace;
+  }
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+  html, body { height: 100%; }
+  body { background: var(--bg); color: var(--txt-1); font-family: var(--font); font-size: 13px; line-height: 1.55; -webkit-font-smoothing: antialiased; }
+
+  ::-webkit-scrollbar { width: 5px; height: 5px; }
+  ::-webkit-scrollbar-track { background: transparent; }
+  ::-webkit-scrollbar-thumb { background: var(--border-h); border-radius: 10px; }
+
+  /* ── Login ── */
+  #login { display: flex; align-items: center; justify-content: center; min-height: 100vh; padding: 24px; }
+  .login-box { width: min(400px, 100%); background: var(--bg-3); border: 1px solid var(--border-h); border-radius: 20px; padding: 40px 36px 36px; box-shadow: var(--shadow); }
+  .login-logo { font-size: 11px; font-weight: 700; letter-spacing: .18em; text-transform: uppercase; color: var(--txt-2); margin-bottom: 28px; display: flex; align-items: center; gap: 8px; }
+  .login-logo::before { content: ''; display: inline-block; width: 24px; height: 24px; background: var(--accent); border-radius: 6px; flex-shrink: 0; }
+  .login-box h2 { font-size: 20px; font-weight: 600; letter-spacing: -.02em; margin-bottom: 6px; }
+  .login-box > p { color: var(--txt-2); font-size: 13px; margin-bottom: 24px; }
+  #loginErr { margin-top: 12px; font-size: 12px; min-height: 18px; }
+
+  /* ── Header ── */
+  header { position: sticky; top: 0; z-index: 20; display: flex; align-items: center; gap: 14px; padding: 0 28px; height: 54px; background: rgba(8,8,8,.92); backdrop-filter: blur(20px) saturate(180%); -webkit-backdrop-filter: blur(20px) saturate(180%); border-bottom: 1px solid var(--border); }
+  .header-brand { display: flex; align-items: center; gap: 9px; font-size: 13px; font-weight: 600; letter-spacing: -.01em; }
+  .header-brand-dot { width: 18px; height: 18px; background: var(--accent); border-radius: 5px; flex-shrink: 0; }
+  .header-sep { color: var(--txt-3); }
+  header .sp { flex: 1; }
+  #last-update { font-size: 11px; color: var(--txt-3); }
+  #stat { font-size: 12px; color: var(--txt-2); padding: 4px 11px; background: var(--bg-3); border: 1px solid var(--border); border-radius: 99px; }
+  .btn-exit { background: transparent; border: 1px solid var(--border-h); color: var(--txt-2); font-size: 12px; border-radius: 99px; padding: 5px 14px; cursor: pointer; min-height: 32px; transition: color 160ms, border-color 160ms; display: inline-flex; align-items: center; }
+  .btn-exit:hover { color: var(--err); border-color: rgba(255,69,58,.35); }
+
+  /* ── Wrap ── */
+  .wrap { max-width: 1200px; margin: 0 auto; padding: 28px 28px 60px; }
+
+  /* ── Stats grid ── */
+  .stats-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(160px, 1fr)); gap: 12px; margin-bottom: 16px; }
+  .stat-card { background: var(--bg-3); border: 1px solid var(--border); border-radius: var(--radius); padding: 18px 20px; display: flex; flex-direction: column; gap: 6px; transition: border-color 160ms, transform 120ms; cursor: pointer; user-select: none; }
+  .stat-card:hover { border-color: var(--border-h); transform: translateY(-1px); }
+  .stat-card:active { transform: translateY(0); }
+  .stat-label { font-size: 10.5px; font-weight: 600; letter-spacing: .06em; text-transform: uppercase; color: var(--txt-2); }
+  .stat-value { font-size: 28px; font-weight: 700; letter-spacing: -.04em; line-height: 1; font-variant-numeric: tabular-nums; }
+  .stat-sub { font-size: 11px; color: var(--txt-2); }
+  .stat-ok   .stat-value { color: var(--ok); }
+  .stat-warn .stat-value { color: var(--warn); }
+  .stat-err  .stat-value { color: var(--err); }
+  .stat-neu  .stat-value { color: var(--txt-1); }
+
+  /* ── Inputs ── */
+  input, select { background: var(--bg-4); border: 1px solid var(--border-h); color: var(--txt-1); border-radius: var(--radius-sm); padding: 9px 13px; font-family: var(--font); font-size: 13px; transition: border-color 160ms, box-shadow 160ms; outline: none; min-width: 0; touch-action: manipulation; }
+  input::placeholder { color: var(--txt-2); }
+  input:focus-visible, select:focus-visible { border-color: rgba(255,255,255,.28); box-shadow: 0 0 0 3px rgba(255,255,255,.07); }
+
+  /* ── Buttons ── */
+  button { cursor: pointer; border: none; border-radius: 99px; padding: 7px 16px; font-family: var(--font); font-size: 12.5px; font-weight: 500; letter-spacing: -.01em; transition: background 160ms, color 160ms, border-color 160ms, transform 80ms, opacity 160ms, box-shadow 160ms; white-space: nowrap; outline: none; touch-action: manipulation; min-height: 36px; display: inline-flex; align-items: center; justify-content: center; gap: 6px; }
+  button:focus-visible { box-shadow: 0 0 0 3px rgba(255,255,255,.18); }
+  button:active:not(:disabled) { transform: scale(.97); }
+  button:disabled { opacity: .35; cursor: not-allowed; }
+  button.loading { pointer-events: none; }
+  @keyframes btnSpin { to { transform: rotate(360deg); } }
+  .btn-spin { width: 13px; height: 13px; border: 2px solid rgba(255,255,255,.25); border-top-color: currentColor; border-radius: 50%; animation: btnSpin .65s linear infinite; flex-shrink: 0; }
+  .btn-primary .btn-spin { border-color: rgba(0,0,0,.2); border-top-color: #080808; }
+  .btn-ghost { background: var(--bg-4); border: 1px solid var(--border-h); color: var(--txt-2); }
+  .btn-ghost:hover:not(:disabled) { border-color: rgba(255,255,255,.14); color: var(--txt-1); }
+  .btn-primary { background: var(--txt-1); color: #080808; border: 1px solid transparent; font-weight: 600; }
+  .btn-primary:hover:not(:disabled) { background: #fff; box-shadow: 0 2px 12px rgba(255,255,255,.12); }
+  .btn-danger { background: rgba(255,69,58,.1); border: 1px solid rgba(255,69,58,.25); color: var(--err); }
+  .btn-danger:hover:not(:disabled) { background: rgba(255,69,58,.18); border-color: var(--err); }
+  .btn-ok { background: rgba(52,199,89,.1); border: 1px solid rgba(52,199,89,.25); color: var(--ok); }
+  .btn-ok:hover:not(:disabled) { background: rgba(52,199,89,.18); border-color: var(--ok); }
+  .btn-sm { padding: 4px 11px; font-size: 11px; border-radius: 99px; min-height: 28px; }
+
+  /* ── Cards ── */
+  .card { background: var(--bg-3); border: 1px solid var(--border); border-radius: var(--radius); padding: 22px 24px; margin-bottom: 16px; }
+  .card-title { font-size: 11.5px; font-weight: 600; letter-spacing: .04em; text-transform: uppercase; color: var(--txt-2); margin-bottom: 18px; padding-bottom: 14px; border-bottom: 1px solid var(--border); }
+  .card-head { display: flex; align-items: center; justify-content: space-between; margin-bottom: 18px; padding-bottom: 14px; border-bottom: 1px solid var(--border); gap: 12px; flex-wrap: wrap; }
+  .card-head .card-title { margin: 0; padding: 0; border: none; }
+
+  /* ── Form row ── */
+  .form-row { display: flex; gap: 10px; flex-wrap: wrap; align-items: flex-end; }
+  .fld { display: flex; flex-direction: column; gap: 5px; }
+  .fld label { font-size: 11px; font-weight: 500; letter-spacing: -.01em; color: var(--txt-2); }
+
+  /* ── Tabs ── */
+  .tab-row { display: flex; align-items: center; gap: 8px; margin-bottom: 16px; flex-wrap: wrap; }
+  .tab-row .sp { flex: 1; }
+  .tab { background: transparent; border: 1px solid transparent; color: var(--txt-2); padding: 5px 13px; font-size: 12px; border-radius: 8px; min-height: 30px; gap: 6px; }
+  .tab:hover:not(:disabled) { color: var(--txt-1); background: var(--bg-4); border-color: var(--border-h); }
+  .tab.active { color: var(--txt-1); background: var(--bg-4); border-color: var(--border-h); font-weight: 600; }
+  .tab-count { font-size: 10.5px; font-weight: 700; padding: 1px 6px; border-radius: 99px; background: var(--bg); min-width: 18px; text-align: center; }
+  .tab-count.warn { color: var(--warn); }
+  .tab-count.err  { color: var(--err); }
+
+  /* ── Search row ── */
+  .search-row { display: flex; align-items: center; gap: 10px; margin-bottom: 16px; }
+  .search-row input { flex: 1; }
+  .shortcut-hint { font-size: 10.5px; color: var(--txt-3); background: var(--bg-4); border: 1px solid var(--border); border-radius: 5px; padding: 2px 6px; font-family: var(--mono); pointer-events: none; flex-shrink: 0; }
+
+  /* ── Table ── */
+  .table-wrap { overflow-x: auto; }
+  table { width: 100%; border-collapse: collapse; }
+  thead th { font-size: 10.5px; font-weight: 600; letter-spacing: .06em; text-transform: uppercase; color: var(--txt-2); padding: 0 10px 10px; border-bottom: 1px solid var(--border); text-align: left; white-space: nowrap; }
+  thead th.sortable { cursor: pointer; user-select: none; }
+  thead th.sortable:hover { color: var(--txt-1); }
+  thead th.sort-asc::after  { content: ' ↑'; color: var(--txt-1); }
+  thead th.sort-desc::after { content: ' ↓'; color: var(--txt-1); }
+  tbody tr { border-bottom: 1px solid var(--border); transition: background 100ms; }
+  tbody tr:last-child { border-bottom: 0; }
+  tbody tr:hover { background: rgba(255,255,255,.025); }
+  td { padding: 12px 10px; vertical-align: middle; font-size: 12.5px; color: var(--txt-1); }
+  .client-name { font-weight: 500; letter-spacing: -.01em; }
+  .client-notes { font-size: 11.5px; color: var(--txt-2); margin-top: 2px; }
+  .keymono { font-family: var(--mono); font-size: 12px; letter-spacing: .06em; color: var(--txt-2); }
+
+  /* ── Relative date ── */
+  .rel { color: var(--txt-2); cursor: default; }
+  .rel-warn { color: var(--warn); font-weight: 600; }
+
+  /* ── Badges ── */
+  .badge { display: inline-flex; align-items: center; gap: 5px; padding: 3px 9px; border-radius: 99px; font-size: 11px; font-weight: 600; letter-spacing: .02em; }
+  .badge::before { content: ''; width: 5px; height: 5px; border-radius: 50%; flex-shrink: 0; }
+  .b-ok   { background: rgba(52,199,89,.1);  color: var(--ok);   border: 1px solid rgba(52,199,89,.25); }
+  .b-ok::before  { background: var(--ok); }
+  .b-blk  { background: rgba(255,69,58,.1);  color: var(--err);  border: 1px solid rgba(255,69,58,.25); }
+  .b-blk::before { background: var(--err); }
+  .b-exp  { background: rgba(245,166,35,.1); color: var(--warn); border: 1px solid rgba(245,166,35,.25); }
+  .b-exp::before { background: var(--warn); }
+  .b-soon { background: rgba(245,166,35,.07); color: var(--warn); border: 1px solid rgba(245,166,35,.18); font-size: 10.5px; margin-left: 4px; }
+  .b-soon::before { background: var(--warn); }
+
+  /* ── Machines ── */
+  .machines-row { display: flex; align-items: center; gap: 6px; }
+  .machines-count { font-size: 13px; font-variant-numeric: tabular-nums; }
+  .m-toggle { background: transparent; border: none; color: var(--txt-2); font-size: 11px; padding: 2px 4px; min-height: unset; border-radius: 4px; transition: color 120ms; }
+  .m-toggle:hover { color: var(--txt-1); }
+  .machines-list { margin-top: 6px; display: flex; flex-direction: column; gap: 4px; }
+  .m { display: flex; justify-content: space-between; align-items: center; gap: 10px; padding: 7px 10px; background: var(--bg-4); border-radius: 8px; border: 1px solid var(--border); }
+  .m-info { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+  .m-name { font-size: 12px; font-weight: 500; color: var(--txt-1); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .m-id-ip { display: flex; align-items: center; gap: 6px; }
+  .m-id-ip .keymono { font-size: 10.5px; }
+  .m-ip { font-size: 10.5px; color: var(--txt-2); font-family: var(--mono); }
+  .m-side { display: flex; align-items: center; gap: 6px; flex-shrink: 0; }
+  .m-time { font-size: 11px; color: var(--txt-2); white-space: nowrap; }
+  .actions { display: flex; gap: 5px; flex-wrap: wrap; }
+
+  /* ── Toast ── */
+  #toast-container { position: fixed; bottom: 20px; right: 20px; z-index: 99; display: flex; flex-direction: column-reverse; gap: 8px; pointer-events: none; }
+  .toast { background: rgba(26,26,26,.97); backdrop-filter: blur(20px); -webkit-backdrop-filter: blur(20px); border: 1px solid var(--border-h); color: var(--txt-1); padding: 11px 18px 11px 14px; border-radius: var(--radius); font-size: 12.5px; box-shadow: var(--shadow); opacity: 0; transform: translateY(8px); transition: opacity .2s, transform .2s; max-width: 340px; display: flex; align-items: center; gap: 10px; }
+  .toast.show { opacity: 1; transform: translateY(0); }
+  .toast-dot { width: 6px; height: 6px; border-radius: 50%; flex-shrink: 0; background: var(--txt-2); }
+  .toast.t-ok   .toast-dot { background: var(--ok); }
+  .toast.t-warn .toast-dot { background: var(--warn); }
+  .toast.t-err  .toast-dot { background: var(--err); }
+
+  /* ── Modal ── */
+  .modal-overlay { position: fixed; inset: 0; z-index: 50; background: rgba(0,0,0,.7); backdrop-filter: blur(6px); -webkit-backdrop-filter: blur(6px); display: flex; align-items: center; justify-content: center; padding: 24px; opacity: 0; transition: opacity .18s; pointer-events: none; }
+  .modal-overlay.open { opacity: 1; pointer-events: auto; }
+  .modal { background: var(--bg-3); border: 1px solid var(--border-h); border-radius: 18px; width: min(480px, 100%); box-shadow: var(--shadow); transform: scale(.96) translateY(8px); transition: transform .2s; overflow: hidden; }
+  .modal-overlay.open .modal { transform: scale(1) translateY(0); }
+  .modal-head { display: flex; align-items: center; justify-content: space-between; padding: 20px 24px 0; }
+  .modal-head h3 { font-size: 15px; font-weight: 600; letter-spacing: -.02em; }
+  .modal-close { background: var(--bg-4); border: 1px solid var(--border-h); color: var(--txt-2); width: 28px; height: 28px; min-height: unset; padding: 0; font-size: 16px; border-radius: 8px; flex-shrink: 0; }
+  .modal-close:hover { color: var(--txt-1); }
+  .modal-body { padding: 16px 24px; color: var(--txt-2); font-size: 13px; line-height: 1.6; }
+  .modal-body .fld { margin-bottom: 12px; }
+  .modal-body .fld:last-child { margin-bottom: 0; }
+  .modal-body input { width: 100%; }
+  .modal-footer { display: flex; gap: 8px; justify-content: flex-end; padding: 0 24px 20px; }
+  .renew-presets { display: flex; gap: 6px; flex-wrap: wrap; margin-bottom: 14px; }
+
+  /* ── Misc ── */
+  .muted { color: var(--txt-2); }
+  .hidden { display: none !important; }
+  .empty-row td { text-align: center; padding: 52px 20px; color: var(--txt-2); font-size: 13px; }
+  .empty-icon { font-size: 32px; margin-bottom: 8px; opacity: .25; }
+  .kbd { display: inline-block; font-family: var(--mono); font-size: 10px; background: var(--bg-4); border: 1px solid var(--border-h); border-radius: 4px; padding: 1px 5px; color: var(--txt-2); }
+  @keyframes shimmer { 0% { background-position: -400px 0; } 100% { background-position: 400px 0; } }
+  .skel { height: 12px; border-radius: 6px; background: linear-gradient(90deg, var(--bg-4) 25%, var(--bg-3) 50%, var(--bg-4) 75%); background-size: 800px 100%; animation: shimmer 1.4s ease-in-out infinite; }
+  .skel-w-full { width: 100%; } .skel-w-40 { width: 40%; } .skel-w-60 { width: 60%; } .skel-w-80 { width: 80%; }
+  .skel-badge { height: 20px; width: 60px; border-radius: 99px; }
+  .sk-row td { padding: 14px 10px; }
 </style>
 </head>
 <body>
 
-<div id="login" class="card">
-  <h1 style="margin-top:0">🔐 Painel de Licenças CONX</h1>
-  <p class="muted">Informe o token de administrador.</p>
-  <div class="row">
-    <div class="fld" style="flex:1">
-      <label>Admin token</label>
-      <input id="token" type="password" placeholder="ADMIN_TOKEN" />
+<!-- Login -->
+<div id="login">
+  <div class="login-box">
+    <div class="login-logo">CONX Contabilidade</div>
+    <h2>Painel de Licenças</h2>
+    <p>Informe suas credenciais de administrador.</p>
+    <div class="fld" style="margin-bottom:10px">
+      <label for="l_user">Usuário</label>
+      <input id="l_user" type="text" placeholder="admin" autocomplete="username" onkeydown="if(event.key==='Enter')document.getElementById('l_pass').focus()" />
     </div>
-    <button class="primary" onclick="entrar()">Entrar</button>
+    <div class="fld" style="margin-bottom:12px">
+      <label for="l_pass">Senha</label>
+      <input id="l_pass" type="password" placeholder="••••••••••••" autocomplete="current-password" onkeydown="if(event.key==='Enter')entrar()" />
+    </div>
+    <button class="btn-primary" style="width:100%;min-height:38px" onclick="entrar()">Entrar</button>
+    <p id="loginErr" style="margin-top:12px;font-size:12px;min-height:18px"></p>
   </div>
-  <p id="loginErr" class="muted"></p>
 </div>
 
+<!-- App -->
 <div id="app" class="hidden">
   <header>
-    <strong>CONX</strong> <span class="muted">Licenças NFSe</span>
+    <div class="header-brand"><div class="header-brand-dot"></div>CONX</div>
+    <span class="header-sep">·</span>
+    <span class="muted" style="font-size:12px">Licenças NFSe</span>
     <span class="sp"></span>
-    <span id="stat" class="muted"></span>
-    <button onclick="carregar()">Atualizar</button>
-    <button class="danger" onclick="sair()">Sair</button>
+    <span id="last-update"></span>
+    <span id="stat"></span>
+    <button class="btn-ghost" onclick="carregar()">Atualizar</button>
+    <button class="btn-exit" onclick="sair()">Sair</button>
   </header>
 
   <div class="wrap">
+
+    <!-- Stats (clicáveis → filtro) -->
+    <div class="stats-grid">
+      <div class="stat-card stat-neu"  onclick="setTab('all')"       title="Ver todas"><div class="stat-label">Total</div><div class="stat-value" id="s-total">—</div><div class="stat-sub">licenças</div></div>
+      <div class="stat-card stat-ok"   onclick="setTab('ativas')"    title="Ver ativas"><div class="stat-label">Ativas</div><div class="stat-value" id="s-ativas">—</div><div class="stat-sub">em uso</div></div>
+      <div class="stat-card stat-warn" onclick="setTab('expirando')" title="Ver expirando"><div class="stat-label">Expirando</div><div class="stat-value" id="s-expirando">—</div><div class="stat-sub">em 7 dias</div></div>
+      <div class="stat-card stat-err"  onclick="setTab('inativas')"  title="Ver inativas"><div class="stat-label">Inativas</div><div class="stat-value" id="s-inativas">—</div><div class="stat-sub">bloq. ou expiradas</div></div>
+      <div class="stat-card stat-neu"  onclick="setTab('all')"       title="Ver todas"><div class="stat-label">Máquinas</div><div class="stat-value" id="s-maquinas">—</div><div class="stat-sub">conectadas</div></div>
+    </div>
+
+    <!-- Nova licença -->
     <div class="card">
-      <h3 style="margin-top:0">➕ Nova licença</h3>
-      <div class="row">
-        <div class="fld" style="flex:2"><label>Cliente / empresa</label><input id="c_name" placeholder="Ex.: Luz em Foco" /></div>
-        <div class="fld"><label>Máquinas</label><input id="c_max" type="number" min="1" value="1" style="width:90px" /></div>
-        <div class="fld"><label>Validade (dias, vazio = sem)</label><input id="c_days" type="number" min="1" placeholder="∞" style="width:150px" /></div>
-        <div class="fld" style="flex:1"><label>Chave (vazio = gerar)</label><input id="c_key" placeholder="auto" /></div>
-        <button class="primary" onclick="criar()">Criar licença</button>
+      <div class="card-title">Nova licença</div>
+      <div class="form-row">
+        <div class="fld" style="flex:2;min-width:180px">
+          <label for="c_name">Cliente / empresa</label>
+          <input id="c_name" placeholder="Ex.: Luz em Foco" autocomplete="off" onkeydown="if(event.key==='Enter')criar()" />
+        </div>
+        <div class="fld">
+          <label for="c_max">Máquinas</label>
+          <input id="c_max" type="number" min="1" value="1" style="width:90px" />
+        </div>
+        <div class="fld">
+          <label for="c_days">Validade (dias, vazio = ∞)</label>
+          <input id="c_days" type="number" min="1" placeholder="∞" style="width:130px" />
+        </div>
+        <div class="fld" style="flex:1;min-width:160px">
+          <label for="c_notes">Observação (opcional)</label>
+          <input id="c_notes" placeholder="Ex.: plano mensal" autocomplete="off" />
+        </div>
+        <div class="fld" style="min-width:160px">
+          <label for="c_key">Chave (vazio = gerar)</label>
+          <input id="c_key" placeholder="automático" autocomplete="off" />
+        </div>
+        <div class="fld" style="padding-bottom:1px">
+          <label style="visibility:hidden" aria-hidden="true">_</label>
+          <button id="btn-criar" class="btn-primary" onclick="criar()" style="min-height:38px;padding:0 20px">Criar licença</button>
+        </div>
       </div>
     </div>
 
+    <!-- Tabela -->
     <div class="card">
-      <div class="row" style="margin-bottom:10px">
-        <input id="filtro" placeholder="Filtrar por cliente ou chave..." style="flex:1" oninput="render()" />
+      <!-- Tabs de status -->
+      <div class="tab-row">
+        <button class="tab active" data-tab="all"       onclick="setTab('all')">Todos <span class="tab-count" id="tc-all">0</span></button>
+        <button class="tab"        data-tab="ativas"    onclick="setTab('ativas')">Ativas <span class="tab-count" id="tc-ativas">0</span></button>
+        <button class="tab"        data-tab="expirando" onclick="setTab('expirando')">Expirando <span class="tab-count warn" id="tc-expirando">0</span></button>
+        <button class="tab"        data-tab="inativas"  onclick="setTab('inativas')">Inativas <span class="tab-count err" id="tc-inativas">0</span></button>
+        <span class="sp"></span>
+        <button class="btn-ghost btn-sm" onclick="exportCSV()" title="Exportar lista em CSV">↓ Exportar CSV</button>
       </div>
-      <table>
-        <thead><tr>
-          <th>Cliente</th><th>Chave</th><th>Status</th><th>Máquinas</th>
-          <th>Validade</th><th>Último acesso</th><th>Ações</th>
-        </tr></thead>
-        <tbody id="tbody"><tr><td colspan="7" class="muted">Carregando...</td></tr></tbody>
-      </table>
+      <!-- Busca -->
+      <div class="search-row">
+        <input id="filtro" placeholder="Buscar por cliente, chave ou observação…" oninput="render()" />
+        <span class="shortcut-hint">/</span>
+      </div>
+      <div class="table-wrap">
+        <table>
+          <thead>
+            <tr>
+              <th class="sortable" onclick="sortBy('clientName')">Cliente</th>
+              <th>Chave</th>
+              <th class="sortable" onclick="sortBy('status')">Status</th>
+              <th class="sortable" onclick="sortBy('machineCount')">Máquinas</th>
+              <th class="sortable" onclick="sortBy('expiresAt')">Validade</th>
+              <th class="sortable" onclick="sortBy('lastSeen')">Último acesso</th>
+              <th></th>
+            </tr>
+          </thead>
+          <tbody id="tbody">
+            <tr class="sk-row"><td><div class="skel skel-w-60"></div></td><td><div class="skel skel-w-80"></div></td><td><div class="skel skel-badge"></div></td><td><div class="skel skel-w-40"></div></td><td><div class="skel skel-w-60"></div></td><td><div class="skel skel-w-60"></div></td><td></td></tr>
+            <tr class="sk-row"><td><div class="skel skel-w-80"></div></td><td><div class="skel skel-w-full"></div></td><td><div class="skel skel-badge"></div></td><td><div class="skel skel-w-40"></div></td><td><div class="skel skel-w-40"></div></td><td><div class="skel skel-w-60"></div></td><td></td></tr>
+            <tr class="sk-row"><td><div class="skel skel-w-40"></div></td><td><div class="skel skel-w-80"></div></td><td><div class="skel skel-badge"></div></td><td><div class="skel skel-w-40"></div></td><td><div class="skel skel-w-60"></div></td><td><div class="skel skel-w-40"></div></td><td></td></tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+
+  </div>
+</div>
+
+<!-- Modal -->
+<div id="modal-overlay" class="modal-overlay" onclick="if(event.target===this)closeModal(false)">
+  <div class="modal" onkeydown="handleModalKey(event)">
+    <div class="modal-head">
+      <h3 id="modal-title"></h3>
+      <button class="modal-close" onclick="closeModal(false)">×</button>
+    </div>
+    <div class="modal-body" id="modal-body"></div>
+    <div class="modal-footer">
+      <button class="btn-ghost" onclick="closeModal(false)">Cancelar</button>
+      <button id="modal-ok" class="btn-primary" onclick="closeModal(true)">Confirmar</button>
     </div>
   </div>
 </div>
 
-<div id="toast" class="toast"></div>
+<div id="toast-container"></div>
 
 <script>
 const API = '/api/admin';
-let TOKEN = localStorage.getItem('conx_admin_token') || '';
+let AUTH = localStorage.getItem('conx_admin_auth') || '';
 let DATA = [];
+let _sortCol = 'clientName', _sortDir = 1;
+let _activeTab = 'all';
+let _modalResolve = null;
+let _refreshTimer = null;
+const _expanded = new Set();
 
-function toast(msg) { const t=document.getElementById('toast'); t.textContent=msg; t.classList.add('show'); setTimeout(()=>t.classList.remove('show'),2600); }
+// ── Toast (pilha) ─────────────────────────────────────────────────────────────
+function toast(msg, type = '') {
+  const container = document.getElementById('toast-container');
+  const el = document.createElement('div');
+  el.className = 'toast' + (type ? ' t-' + type : '');
+  el.innerHTML = `<span class="toast-dot"></span><span>${msg}</span>`;
+  container.appendChild(el);
+  requestAnimationFrame(() => { requestAnimationFrame(() => el.classList.add('show')); });
+  setTimeout(() => {
+    el.classList.remove('show');
+    setTimeout(() => el.remove(), 220);
+  }, 3200);
+}
 
-async function api(op, extra={}) {
-  const r = await fetch(API, { method:'POST', headers:{'Content-Type':'application/json','x-admin-token':TOKEN}, body:JSON.stringify({op, ...extra}) });
-  const d = await r.json().catch(()=>({ok:false,message:'resposta invalida'}));
-  if (r.status === 401) { sair(); throw new Error('Token invalido'); }
+// ── API ───────────────────────────────────────────────────────────────────────
+async function api(op, extra = {}) {
+  const r = await fetch(API, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', 'Authorization': 'Basic ' + AUTH },
+    body: JSON.stringify({ op, ...extra }),
+  });
+  const d = await r.json().catch(() => ({ ok: false, message: 'resposta inválida' }));
+  // Só chama sair() se já havia sessão ativa — evita reload durante tentativa de login manual
+  if (r.status === 401 && localStorage.getItem('conx_admin_auth')) {
+    sair();
+    throw new Error('Sessão expirada. Faça login novamente.');
+  }
   if (!d.ok) throw new Error(d.message || 'erro');
   return d;
 }
 
-async function entrar() {
-  TOKEN = document.getElementById('token').value.trim();
-  try { await api('list'); localStorage.setItem('conx_admin_token', TOKEN);
+// ── Loading btn ───────────────────────────────────────────────────────────────
+function setLoading(btn, on, label) {
+  if (!btn) return;
+  btn.disabled = on;
+  btn.classList.toggle('loading', on);
+  if (on) { btn._orig = btn.innerHTML; btn.innerHTML = `<span class="btn-spin"></span>${label || ''}`; }
+  else { btn.innerHTML = btn._orig || btn.innerHTML; }
+}
+
+// ── Modal ─────────────────────────────────────────────────────────────────────
+function openModal(title, bodyHTML, confirmLabel = 'Confirmar', danger = false) {
+  return new Promise(resolve => {
+    _modalResolve = resolve;
+    document.getElementById('modal-title').textContent = title;
+    document.getElementById('modal-body').innerHTML = bodyHTML;
+    const ok = document.getElementById('modal-ok');
+    ok.textContent = confirmLabel;
+    ok.className = danger ? 'btn-danger' : 'btn-primary';
+    const ov = document.getElementById('modal-overlay');
+    ov.classList.add('open');
+    setTimeout(() => {
+      const firstInput = ov.querySelector('input');
+      if (firstInput) firstInput.focus();
+    }, 180);
+  });
+}
+
+function closeModal(result) {
+  document.getElementById('modal-overlay').classList.remove('open');
+  if (_modalResolve) { _modalResolve(result); _modalResolve = null; }
+}
+
+function handleModalKey(e) {
+  if (e.key === 'Enter' && document.activeElement.tagName !== 'BUTTON') {
+    e.preventDefault();
+    closeModal(true);
+  }
+}
+
+// ── Keyboard shortcuts ────────────────────────────────────────────────────────
+document.addEventListener('keydown', e => {
+  if (e.key === 'Escape') { closeModal(false); return; }
+  const appVisible = !document.getElementById('app').classList.contains('hidden');
+  const modalOpen  = document.getElementById('modal-overlay').classList.contains('open');
+  if (appVisible && !modalOpen && e.key === '/' && document.activeElement.tagName !== 'INPUT') {
+    e.preventDefault();
+    document.getElementById('filtro')?.focus();
+  }
+});
+
+// ── Auth ──────────────────────────────────────────────────────────────────────
+// auto=true: usa AUTH já setado do localStorage, falha silenciosamente
+// auto=false: lê form, exibe erros ao usuário
+async function entrar(auto = false) {
+  const errEl = document.getElementById('loginErr');
+  const btn   = document.querySelector('#login .btn-primary');
+
+  if (!auto) {
+    const user = document.getElementById('l_user').value.trim();
+    const pass = document.getElementById('l_pass').value;
+    if (!user || !pass) {
+      errEl.textContent = 'Preencha usuário e senha.';
+      errEl.style.color = 'var(--err)';
+      return;
+    }
+    AUTH = btoa(user + ':' + pass);
+  }
+
+  setLoading(btn, true, auto ? '' : 'Entrando...');
+  try {
+    await api('list');
+    localStorage.setItem('conx_admin_auth', AUTH);
     document.getElementById('login').classList.add('hidden');
-    document.getElementById('app').classList.remove('hidden'); carregar();
-  } catch(e) { document.getElementById('loginErr').textContent = '❌ ' + e.message; }
+    document.getElementById('app').classList.remove('hidden');
+    carregar();
+    _refreshTimer = setInterval(carregar, 60_000);
+  } catch (e) {
+    AUTH = '';
+    localStorage.removeItem('conx_admin_auth');
+    setLoading(btn, false);
+    if (auto) return; // falha silenciosa — mostra só o formulário
+    const blocked = e.message && e.message.includes('bloqueado');
+    errEl.style.color = blocked ? 'var(--warn)' : 'var(--err)';
+    errEl.textContent = e.message;
+    if (blocked) {
+      btn.disabled = true;
+      setTimeout(() => { btn.disabled = false; errEl.textContent = ''; }, 15 * 60 * 1000);
+    }
+  }
 }
-function sair() { localStorage.removeItem('conx_admin_token'); location.reload(); }
 
+function sair() {
+  clearInterval(_refreshTimer);
+  AUTH = '';
+  localStorage.removeItem('conx_admin_auth');
+  location.reload();
+}
+
+// ── Load ──────────────────────────────────────────────────────────────────────
 async function carregar() {
-  try { const d = await api('list'); DATA = d.items || [];
-    document.getElementById('stat').textContent = d.total + ' licença(s)';
+  const btn = document.querySelector('header .btn-ghost');
+  if (btn) setLoading(btn, true);
+  try {
+    const d = await api('list');
+    DATA = d.items || [];
+    document.getElementById('stat').textContent = d.total + ' licença' + (d.total !== 1 ? 's' : '');
+    const now = new Date();
+    document.getElementById('last-update').textContent =
+      'atualizado ' + now.toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' });
+    buildStats();
     render();
-  } catch(e) { toast('Erro: ' + e.message); }
+  } catch (e) { toast('Erro ao carregar: ' + e.message, 'err'); }
+  finally { if (btn) setLoading(btn, false); }
 }
 
-function fmtDate(iso) { if(!iso) return '—'; const d=new Date(iso); return d.toLocaleString('pt-BR',{day:'2-digit',month:'2-digit',year:'2-digit',hour:'2-digit',minute:'2-digit'}); }
-function isExpired(it) { return it.expiresAt && Date.now() > new Date(it.expiresAt).getTime(); }
+// ── Stats ─────────────────────────────────────────────────────────────────────
+function buildStats() {
+  const now = Date.now();
+  const ativas    = DATA.filter(it => it.status !== 'blocked' && !isExpired(it)).length;
+  const expirando = DATA.filter(it => it.expiresAt && it.status !== 'blocked' && !isExpired(it) &&
+    new Date(it.expiresAt).getTime() - now < 7 * 86400_000).length;
+  const inativas  = DATA.filter(it => it.status === 'blocked' || isExpired(it)).length;
+  const maquinas  = DATA.reduce((s, it) => s + (it.machineCount || 0), 0);
 
+  animCount('s-total',     DATA.length);
+  animCount('s-ativas',    ativas);
+  animCount('s-expirando', expirando);
+  animCount('s-inativas',  inativas);
+  animCount('s-maquinas',  maquinas);
+
+  document.getElementById('tc-all').textContent       = DATA.length;
+  document.getElementById('tc-ativas').textContent    = ativas;
+  document.getElementById('tc-expirando').textContent = expirando;
+  document.getElementById('tc-inativas').textContent  = inativas;
+}
+
+function animCount(id, target) {
+  const el = document.getElementById(id);
+  if (!el) return;
+  const prev = parseInt(el.textContent) || 0;
+  if (prev === target || isNaN(prev)) { el.textContent = target; return; }
+  clearInterval(el._anim); // cancela animação anterior se ainda rodando
+  const diff = target - prev, steps = 20, dur = 400;
+  let i = 0;
+  el._anim = setInterval(() => {
+    i++;
+    el.textContent = Math.round(prev + diff * (i / steps));
+    if (i >= steps) { el.textContent = target; clearInterval(el._anim); }
+  }, dur / steps);
+}
+
+// ── Tabs ──────────────────────────────────────────────────────────────────────
+function setTab(tab) {
+  _activeTab = tab;
+  document.querySelectorAll('.tab').forEach(btn => {
+    btn.classList.toggle('active', btn.dataset.tab === tab);
+  });
+  render();
+}
+
+// ── Sort ──────────────────────────────────────────────────────────────────────
+function sortBy(col) {
+  if (_sortCol === col) _sortDir *= -1;
+  else { _sortCol = col; _sortDir = 1; }
+  document.querySelectorAll('thead th').forEach(th => th.classList.remove('sort-asc', 'sort-desc'));
+  const ths  = document.querySelectorAll('thead th.sortable');
+  const cols = ['clientName', 'status', 'machineCount', 'expiresAt', 'lastSeen'];
+  const idx  = cols.indexOf(col);
+  if (idx >= 0) ths[idx].classList.add(_sortDir === 1 ? 'sort-asc' : 'sort-desc');
+  render();
+}
+
+// ── Date helpers ──────────────────────────────────────────────────────────────
+function fmtAbs(iso) {
+  if (!iso) return '';
+  return new Date(iso).toLocaleString('pt-BR', { day: '2-digit', month: '2-digit', year: '2-digit', hour: '2-digit', minute: '2-digit' });
+}
+
+function relDate(iso, future = false) {
+  if (!iso) return '—';
+  const abs = Math.abs(Date.now() - new Date(iso).getTime());
+  const mins   = Math.floor(abs / 60_000);
+  const hours  = Math.floor(abs / 3_600_000);
+  const days   = Math.floor(abs / 86_400_000);
+  const months = Math.floor(days / 30);
+  const years  = Math.floor(days / 365);
+  if (future) {
+    if (days < 1)   return 'hoje';
+    if (days === 1) return 'amanhã';
+    if (days < 30)  return `em ${days}d`;
+    if (days < 365) return `em ${months} mês${months > 1 ? 'es' : ''}`;
+    return `em ${years} ano${years > 1 ? 's' : ''}`;
+  }
+  if (mins < 2)    return 'agora';
+  if (hours < 1)   return `${mins}min atrás`;
+  if (hours < 24)  return `${hours}h atrás`;
+  if (days < 30)   return `${days}d atrás`;
+  if (days < 365)  return `${months} mês${months > 1 ? 'es' : ''} atrás`;
+  return `${years} ano${years > 1 ? 's' : ''} atrás`;
+}
+
+function isExpired(it) { return it.expiresAt && Date.now() > new Date(it.expiresAt).getTime(); }
+function expiresDays(it) {
+  if (!it.expiresAt) return null;
+  return Math.ceil((new Date(it.expiresAt).getTime() - Date.now()) / 86400_000);
+}
+function esc(s) { return String(s || '').replace(/[&<>"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c])); }
+
+// ── Render ────────────────────────────────────────────────────────────────────
 function render() {
-  const f = (document.getElementById('filtro').value||'').toLowerCase();
-  const tb = document.getElementById('tbody');
-  const items = DATA.filter(it => !f || (it.clientName||'').toLowerCase().includes(f) || it.key.toLowerCase().includes(f.replace(/[^a-z0-9]/g,'')));
-  if (!items.length) { tb.innerHTML = '<tr><td colspan="7" class="muted">Nenhuma licença.</td></tr>'; return; }
+  const f   = (document.getElementById('filtro').value || '').toLowerCase();
+  const tab = _activeTab;
+  const tb  = document.getElementById('tbody');
+
+  let items = DATA.filter(it => {
+    if (tab === 'ativas'    && (it.status === 'blocked' || isExpired(it))) return false;
+    if (tab === 'inativas'  && it.status !== 'blocked' && !isExpired(it))  return false;
+    if (tab === 'expirando') {
+      const days = expiresDays(it);
+      if (!it.expiresAt || it.status === 'blocked' || isExpired(it) || days === null || days > 7) return false;
+    }
+    if (!f) return true;
+    return (it.clientName || '').toLowerCase().includes(f) ||
+           it.key.toLowerCase().includes(f.replace(/[^a-z0-9]/g, '')) ||
+           (it.notes || '').toLowerCase().includes(f);
+  });
+
+  items = [...items].sort((a, b) => {
+    let va = a[_sortCol], vb = b[_sortCol];
+    if (va == null) va = ''; if (vb == null) vb = '';
+    if (typeof va === 'number') return (va - vb) * _sortDir;
+    return String(va).localeCompare(String(vb)) * _sortDir;
+  });
+
+  if (!items.length) {
+    tb.innerHTML = `<tr class="empty-row"><td colspan="7"><div class="empty-icon">◻</div>Nenhuma licença encontrada.</td></tr>`;
+    return;
+  }
+
+  const now = Date.now();
+
   tb.innerHTML = items.map(it => {
-    const badge = it.status==='blocked' ? '<span class="badge b-blk">BLOQUEADA</span>'
-                : isExpired(it) ? '<span class="badge b-exp">EXPIRADA</span>'
-                : '<span class="badge b-ok">ATIVA</span>';
-    const machs = Object.entries(it.machines||{}).map(([id,m])=>
-      `<div class="m"><span class="keymono">${id.slice(0,16)}</span><span>${fmtDate(m.lastSeen)} <button class="danger" style="padding:1px 6px" onclick="rmMachine('${it.key}','${id}')">×</button></span></div>`).join('') || '<span class="muted">nenhuma</span>';
+    const days = expiresDays(it);
+    const soonBadge = (days !== null && days >= 0 && days <= 7 && it.status !== 'blocked' && !isExpired(it))
+      ? `<span class="badge b-soon">expira em ${days}d</span>` : '';
+
+    const badge = it.status === 'blocked'
+      ? '<span class="badge b-blk">Bloqueada</span>'
+      : isExpired(it)
+        ? '<span class="badge b-exp">Expirada</span>'
+        : '<span class="badge b-ok">Ativa</span>';
+
+    // Validade
+    let validadeTd = '<span style="color:var(--txt-3)">sem validade</span>';
+    if (it.expiresAt) {
+      const isFuture = new Date(it.expiresAt).getTime() > now;
+      const rClass   = (!isExpired(it) && days !== null && days <= 7) ? 'rel-warn' : 'rel';
+      validadeTd = `<span class="${rClass}" title="${fmtAbs(it.expiresAt)}">${relDate(it.expiresAt, isFuture)}</span>`;
+    }
+
+    // Último acesso
+    const lastSeenTd = it.lastSeen
+      ? `<span class="rel" title="${fmtAbs(it.lastSeen)}">${relDate(it.lastSeen)}</span>`
+      : '<span style="color:var(--txt-3)">nunca</span>';
+
+    // Máquinas
+    const machCount = it.machineCount;
+    const hasList   = machCount > 0;
+    const isExpanded = _expanded.has(it.key);
+    const machList = Object.entries(it.machines || {}).map(([id, m]) => {
+      const name    = esc(m.name || '');
+      const mip     = esc(m.ip  || '');
+      const lastRel = m.lastSeen ? relDate(m.lastSeen) : '—';
+      const lastAbs = m.lastSeen ? fmtAbs(m.lastSeen) : '';
+      return `<div class="m">
+        <div class="m-info">
+          <div class="m-name" title="${name || id}">${name || '<span class="muted">máquina desconhecida</span>'}</div>
+          <div class="m-id-ip">
+            <span class="keymono">${id.slice(0, 16)}</span>
+            ${mip ? `<span class="m-ip">· ${mip}</span>` : ''}
+          </div>
+        </div>
+        <div class="m-side">
+          <span class="m-time" title="${lastAbs}">${lastRel}</span>
+          <button class="btn-danger btn-sm" onclick="rmMachine('${it.key}','${id}')" title="Liberar máquina">×</button>
+        </div>
+      </div>`;
+    }).join('');
+
+    const machinesCell = `
+      <div class="machines-row">
+        <span class="machines-count">${machCount}<span class="muted"> / ${it.maxMachines}</span></span>
+        ${hasList ? `<button class="m-toggle" id="mtog-${it.key}" onclick="toggleMachines('${it.key}')">${isExpanded ? '▾' : '▸'}</button>` : ''}
+      </div>
+      ${hasList ? `<div class="machines-list" id="mlist-${it.key}" style="display:${isExpanded ? 'flex' : 'none'};flex-direction:column;gap:3px;margin-top:6px">${machList}</div>` : ''}`;
+
     return `<tr>
-      <td><strong>${esc(it.clientName)||'<span class=muted>—</span>'}</strong>${it.notes?`<br><span class="muted">${esc(it.notes)}</span>`:''}</td>
-      <td class="keymono">${it.keyFmt}</td>
-      <td>${badge}</td>
-      <td><div class="machines">${it.machineCount}/${it.maxMachines}${machs?'<br>'+machs:''}</div></td>
-      <td>${it.expiresAt?fmtDate(it.expiresAt):'<span class="muted">sem</span>'}</td>
-      <td>${fmtDate(it.lastSeen)}</td>
-      <td><div class="actions">
-        ${it.status==='blocked'
-          ? `<button onclick="setStatus('${it.key}','unblock')">Desbloquear</button>`
-          : `<button class="danger" onclick="setStatus('${it.key}','block')">Bloquear</button>`}
-        <button onclick="editar('${it.key}')">Editar</button>
-        <button onclick="copiar('${it.keyFmt}')">Copiar</button>
-        <button class="danger" onclick="apagar('${it.key}')">Excluir</button>
-      </div></td>
+      <td>
+        <div class="client-name">${esc(it.clientName) || '<span class="muted">—</span>'}</div>
+        ${it.notes ? `<div class="client-notes">${esc(it.notes)}</div>` : ''}
+      </td>
+      <td><span class="keymono">${it.keyFmt}</span></td>
+      <td>${badge}${soonBadge}</td>
+      <td>${machinesCell}</td>
+      <td>${validadeTd}</td>
+      <td>${lastSeenTd}</td>
+      <td>
+        <div class="actions">
+          ${it.status === 'blocked'
+            ? `<button class="btn-ok btn-sm"    onclick="setStatus('${it.key}','unblock')">Desbloquear</button>`
+            : `<button class="btn-danger btn-sm" onclick="setStatus('${it.key}','block')">Bloquear</button>`}
+          <button class="btn-ghost btn-sm" onclick="renovar('${it.key}')">Renovar</button>
+          <button class="btn-ghost btn-sm" onclick="editar('${it.key}')">Editar</button>
+          <button class="btn-ghost btn-sm" onclick="copiar('${it.keyFmt}')">Copiar</button>
+          <button class="btn-danger btn-sm" onclick="apagar('${it.key}')">Excluir</button>
+        </div>
+      </td>
     </tr>`;
   }).join('');
 }
-function esc(s){ return String(s||'').replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c])); }
 
-async function criar() {
-  const clientName=document.getElementById('c_name').value.trim();
-  const maxMachines=Number(document.getElementById('c_max').value||1);
-  const daysRaw=document.getElementById('c_days').value;
-  const key=document.getElementById('c_key').value.trim();
-  if(!clientName){ toast('Informe o cliente.'); return; }
-  try { const d = await api('create',{clientName,maxMachines,days:daysRaw===''?null:Number(daysRaw),key:key||undefined});
-    document.getElementById('c_name').value=''; document.getElementById('c_days').value=''; document.getElementById('c_key').value='';
-    await navigator.clipboard?.writeText(d.keyFmt).catch(()=>{});
-    toast('Criada: '+d.keyFmt+' (copiada)'); carregar();
-  } catch(e){ toast('Erro: '+e.message); }
+// ── Machines expand ───────────────────────────────────────────────────────────
+function toggleMachines(key) {
+  _expanded.has(key) ? _expanded.delete(key) : _expanded.add(key);
+  const listEl = document.getElementById('mlist-' + key);
+  const togEl  = document.getElementById('mtog-'  + key);
+  if (listEl) { listEl.style.display = _expanded.has(key) ? 'flex' : 'none'; }
+  if (togEl)  { togEl.textContent = _expanded.has(key) ? '▾' : '▸'; }
 }
-async function setStatus(key,op){ try{ await api(op,{key}); carregar(); }catch(e){ toast('Erro: '+e.message);} }
-async function rmMachine(key,machine_id){ if(!confirm('Liberar esta máquina da licença?'))return; try{ await api('removeMachine',{key,machine_id}); carregar(); }catch(e){ toast('Erro: '+e.message);} }
-async function apagar(key){ if(!confirm('Excluir esta licença? O cliente perde o acesso.'))return; try{ await api('delete',{key}); carregar(); }catch(e){ toast('Erro: '+e.message);} }
-async function editar(key){
-  const it = DATA.find(x=>x.key===key); if(!it) return;
-  const name = prompt('Cliente:', it.clientName||''); if(name===null) return;
-  const max = prompt('Máximo de máquinas:', it.maxMachines); if(max===null) return;
-  const days = prompt('Validade em dias a partir de AGORA (vazio = manter; 0 = sem validade):',''); if(days===null) return;
-  const extra = { key, clientName:name, maxMachines:Number(max) };
-  if (days!=='') extra.days = Number(days)===0 ? null : Number(days);
-  try{ await api('update', extra); toast('Atualizada.'); carregar(); }catch(e){ toast('Erro: '+e.message);} }
-function copiar(txt){ navigator.clipboard?.writeText(txt); toast('Chave copiada: '+txt); }
 
-// auto-login se ja tem token salvo
-if (TOKEN) { document.getElementById('token').value = TOKEN; entrar(); }
+// ── Actions ───────────────────────────────────────────────────────────────────
+async function criar() {
+  const clientName  = document.getElementById('c_name').value.trim();
+  const maxMachines = Number(document.getElementById('c_max').value || 1);
+  const daysRaw     = document.getElementById('c_days').value;
+  const notes       = document.getElementById('c_notes').value.trim();
+  const key         = document.getElementById('c_key').value.trim();
+  if (!clientName) { toast('Informe o nome do cliente.', 'warn'); document.getElementById('c_name').focus(); return; }
+  const btn = document.getElementById('btn-criar');
+  setLoading(btn, true, 'Criando...');
+  try {
+    const d = await api('create', { clientName, maxMachines, notes, days: daysRaw === '' ? null : Number(daysRaw), key: key || undefined });
+    document.getElementById('c_name').value  = '';
+    document.getElementById('c_days').value  = '';
+    document.getElementById('c_notes').value = '';
+    document.getElementById('c_key').value   = '';
+    await navigator.clipboard?.writeText(d.keyFmt).catch(() => {});
+    toast('Criada: ' + d.keyFmt + ' — chave copiada', 'ok');
+    carregar();
+  } catch (e) { toast('Erro: ' + e.message, 'err'); }
+  finally { setLoading(btn, false); }
+}
+
+async function setStatus(key, op) {
+  try { await api(op, { key }); carregar(); toast(op === 'block' ? 'Licença bloqueada.' : 'Licença desbloqueada.', op === 'block' ? 'warn' : 'ok'); }
+  catch (e) { toast('Erro: ' + e.message, 'err'); }
+}
+
+async function rmMachine(key, machine_id) {
+  const ok = await openModal(
+    'Liberar máquina',
+    `<p>Deseja liberar esta máquina da licença?</p><p style="margin-top:8px;font-family:var(--mono);font-size:11.5px;color:var(--txt-1)">${machine_id}</p>`,
+    'Liberar', true
+  );
+  if (!ok) return;
+  try { await api('removeMachine', { key, machine_id }); _expanded.delete(key); carregar(); toast('Máquina removida.', 'ok'); }
+  catch (e) { toast('Erro: ' + e.message, 'err'); }
+}
+
+async function apagar(key) {
+  const it = DATA.find(x => x.key === key);
+  const ok = await openModal(
+    'Excluir licença',
+    `<p>Tem certeza que deseja excluir a licença de <strong style="color:var(--txt-1)">${esc(it?.clientName || key)}</strong>?</p><p style="margin-top:8px;color:var(--err)">O cliente perderá o acesso imediatamente.</p>`,
+    'Excluir', true
+  );
+  if (!ok) return;
+  try { await api('delete', { key }); carregar(); toast('Licença excluída.', 'ok'); }
+  catch (e) { toast('Erro: ' + e.message, 'err'); }
+}
+
+async function editar(key) {
+  const it = DATA.find(x => x.key === key);
+  if (!it) return;
+  const ok = await openModal('Editar licença', `
+    <div class="fld"><label for="e_name">Cliente / empresa</label><input id="e_name" value="${esc(it.clientName)}" /></div>
+    <div class="fld"><label for="e_max">Máximo de máquinas</label><input id="e_max" type="number" min="1" value="${it.maxMachines}" /></div>
+    <div class="fld"><label for="e_days">Adicionar dias à validade (vazio = manter; 0 = sem validade)</label><input id="e_days" type="number" min="0" placeholder="vazio = manter" /></div>
+    <div class="fld"><label for="e_notes">Observação</label><input id="e_notes" value="${esc(it.notes || '')}" placeholder="opcional" /></div>
+  `, 'Salvar');
+  if (!ok) return;
+  const name  = document.getElementById('e_name')?.value.trim();
+  const max   = document.getElementById('e_max')?.value;
+  const days  = document.getElementById('e_days')?.value;
+  const notes = document.getElementById('e_notes')?.value.trim();
+  const extra = { key, clientName: name, maxMachines: Number(max), notes };
+  if (days !== '') extra.days = Number(days) === 0 ? null : Number(days);
+  try { await api('update', extra); toast('Licença atualizada.', 'ok'); carregar(); }
+  catch (e) { toast('Erro: ' + e.message, 'err'); }
+}
+
+async function renovar(key) {
+  const it = DATA.find(x => x.key === key);
+  if (!it) return;
+  const ok = await openModal('Renovar licença', `
+    <p style="margin-bottom:14px">Escolha um período ou informe a quantidade de dias.</p>
+    <div class="renew-presets">
+      <button class="btn-ghost btn-sm" onclick="document.getElementById('r_days').value=30">+30 dias</button>
+      <button class="btn-ghost btn-sm" onclick="document.getElementById('r_days').value=90">+90 dias</button>
+      <button class="btn-ghost btn-sm" onclick="document.getElementById('r_days').value=180">+180 dias</button>
+      <button class="btn-ghost btn-sm" onclick="document.getElementById('r_days').value=365">+1 ano</button>
+    </div>
+    <div class="fld"><label for="r_days">Dias a adicionar</label><input id="r_days" type="number" min="1" placeholder="Ex.: 45" /></div>
+    <p style="margin-top:12px;font-size:12px;color:var(--txt-3)">Os dias são somados à validade atual${it.expiresAt && !isExpired(it) ? ` (${fmtAbs(it.expiresAt)})` : ' a partir de hoje'}.</p>
+  `, 'Renovar');
+  if (!ok) return;
+  const days = Number(document.getElementById('r_days')?.value);
+  if (!days || days < 1) { toast('Informe um período válido.', 'warn'); return; }
+  const base    = it.expiresAt && !isExpired(it) ? new Date(it.expiresAt) : new Date();
+  const newExp  = new Date(base.getTime() + days * 86400_000).toISOString();
+  try { await api('update', { key, expiresAt: newExp }); toast(`Renovada por ${days} dias.`, 'ok'); carregar(); }
+  catch (e) { toast('Erro: ' + e.message, 'err'); }
+}
+
+function copiar(txt) {
+  navigator.clipboard?.writeText(txt);
+  toast('Chave copiada: ' + txt, 'ok');
+}
+
+// ── Export CSV ────────────────────────────────────────────────────────────────
+function exportCSV() {
+  if (!DATA.length) { toast('Nenhuma licença para exportar.', 'warn'); return; }
+  const headers = ['Cliente', 'Chave', 'Status', 'Máquinas', 'Max Máquinas', 'Validade', 'Observação', 'Último Acesso', 'Criado em'];
+  const rows = DATA.map(it => [
+    it.clientName || '',
+    it.keyFmt,
+    it.status === 'blocked' ? 'Bloqueada' : isExpired(it) ? 'Expirada' : 'Ativa',
+    it.machineCount,
+    it.maxMachines,
+    it.expiresAt ? fmtAbs(it.expiresAt) : '',
+    it.notes || '',
+    it.lastSeen ? fmtAbs(it.lastSeen) : '',
+    it.createdAt ? fmtAbs(it.createdAt) : '',
+  ]);
+  const bom = '﻿';
+  const csv = bom + [headers, ...rows].map(r => r.map(v => `"${String(v).replace(/"/g, '""')}"`).join(';')).join('\r\n');
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(new Blob([csv], { type: 'text/csv;charset=utf-8;' }));
+  a.download = `licencas-${new Date().toISOString().slice(0, 10)}.csv`;
+  a.click();
+  toast('CSV exportado.', 'ok');
+}
+
+// auto-login se já tem credenciais salvas (passa auto=true para não ler o formulário)
+if (AUTH) entrar(true);
 </script>
 </body>
 </html>
