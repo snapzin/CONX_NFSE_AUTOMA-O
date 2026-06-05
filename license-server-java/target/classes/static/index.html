@@ -1,0 +1,708 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<meta name="robots" content="noindex, nofollow" />
+<title>CONX · Licenças NFSe</title>
+<style>
+  :root {
+    --bg:       #080808;
+    --bg-2:     #0d0d0d;
+    --bg-3:     #141414;
+    --bg-4:     #1a1a1a;
+    --border:   #1e1e1e;
+    --border-h: #2a2a2a;
+    --txt-1:    #f0f0f0;
+    --txt-2:    #686868;
+    --txt-3:    #3a3a3a;
+    --ok:       #34c759;
+    --warn:     #f5a623;
+    --err:      #ff453a;
+    --accent:   #ffffff;
+    --radius:   12px;
+    --radius-sm: 8px;
+    --shadow:   0 8px 28px rgba(0,0,0,.5);
+    --font:     -apple-system, BlinkMacSystemFont, "SF Pro Text", "Segoe UI", sans-serif;
+    --mono:     "SF Mono", "JetBrains Mono", Menlo, monospace;
+  }
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+  html, body { height: 100%; }
+  body {
+    background: var(--bg);
+    color: var(--txt-1);
+    font-family: var(--font);
+    font-size: 13px;
+    line-height: 1.55;
+    -webkit-font-smoothing: antialiased;
+  }
+
+  /* ── Scrollbar ── */
+  ::-webkit-scrollbar { width: 5px; height: 5px; }
+  ::-webkit-scrollbar-track { background: transparent; }
+  ::-webkit-scrollbar-thumb { background: var(--border-h); border-radius: 10px; }
+
+  /* ── Login ── */
+  #login {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    min-height: 100vh;
+    padding: 24px;
+  }
+  .login-box {
+    width: min(400px, 100%);
+    background: var(--bg-3);
+    border: 1px solid var(--border-h);
+    border-radius: 20px;
+    padding: 40px 36px 36px;
+    box-shadow: var(--shadow);
+  }
+  .login-logo {
+    font-size: 11px;
+    font-weight: 700;
+    letter-spacing: .18em;
+    text-transform: uppercase;
+    color: var(--txt-2);
+    margin-bottom: 28px;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+  }
+  .login-logo::before {
+    content: '';
+    display: inline-block;
+    width: 24px; height: 24px;
+    background: var(--accent);
+    border-radius: 6px;
+    flex-shrink: 0;
+  }
+  .login-box h2 {
+    font-size: 20px;
+    font-weight: 600;
+    letter-spacing: -.02em;
+    color: var(--txt-1);
+    margin-bottom: 6px;
+  }
+  .login-box p {
+    color: var(--txt-2);
+    font-size: 13px;
+    margin-bottom: 24px;
+  }
+  #loginErr {
+    margin-top: 12px;
+    font-size: 12px;
+    color: var(--err);
+    min-height: 18px;
+  }
+
+  /* ── Header ── */
+  header {
+    position: sticky;
+    top: 0;
+    z-index: 10;
+    display: flex;
+    align-items: center;
+    gap: 14px;
+    padding: 0 28px;
+    height: 54px;
+    background: rgba(8,8,8,.92);
+    backdrop-filter: blur(20px) saturate(180%);
+    -webkit-backdrop-filter: blur(20px) saturate(180%);
+    border-bottom: 1px solid var(--border);
+  }
+  .header-brand {
+    display: flex;
+    align-items: center;
+    gap: 9px;
+    font-size: 13px;
+    font-weight: 600;
+    letter-spacing: -.01em;
+  }
+  .header-brand-dot {
+    width: 18px; height: 18px;
+    background: var(--accent);
+    border-radius: 5px;
+    flex-shrink: 0;
+  }
+  .header-sep { color: var(--txt-3); }
+  header .sp { flex: 1; }
+  #stat {
+    font-size: 12px;
+    color: var(--txt-2);
+    padding: 4px 11px;
+    background: var(--bg-3);
+    border: 1px solid var(--border);
+    border-radius: 99px;
+  }
+
+  /* ── Wrap ── */
+  .wrap { max-width: 1200px; margin: 0 auto; padding: 28px 28px 60px; }
+
+  /* ── Inputs ── */
+  input, select {
+    background: var(--bg-4);
+    border: 1px solid var(--border-h);
+    color: var(--txt-1);
+    border-radius: var(--radius-sm);
+    padding: 9px 13px;
+    font-family: var(--font);
+    font-size: 13px;
+    transition: border-color 160ms, box-shadow 160ms;
+    outline: none;
+    min-width: 0;
+    touch-action: manipulation;
+  }
+  input::placeholder { color: var(--txt-2); }
+  input:focus-visible, select:focus-visible {
+    border-color: rgba(255,255,255,.28);
+    box-shadow: 0 0 0 3px rgba(255,255,255,.07);
+  }
+
+  /* ── Buttons ── */
+  button {
+    cursor: pointer;
+    border: none;
+    border-radius: 99px;
+    padding: 7px 16px;
+    font-family: var(--font);
+    font-size: 12.5px;
+    font-weight: 500;
+    letter-spacing: -.01em;
+    transition: background 160ms, color 160ms, border-color 160ms, transform 80ms, opacity 160ms, box-shadow 160ms;
+    white-space: nowrap;
+    outline: none;
+    touch-action: manipulation;
+    min-height: 36px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 6px;
+  }
+  button:focus-visible {
+    box-shadow: 0 0 0 3px rgba(255,255,255,.18);
+  }
+  button:active:not(:disabled) { transform: scale(.97); }
+  button:disabled { opacity: .35; cursor: not-allowed; }
+  button.loading { pointer-events: none; }
+
+  /* Spinner inline */
+  @keyframes btnSpin { to { transform: rotate(360deg); } }
+  .btn-spin {
+    width: 13px; height: 13px;
+    border: 2px solid rgba(255,255,255,.25);
+    border-top-color: currentColor;
+    border-radius: 50%;
+    animation: btnSpin .65s linear infinite;
+    flex-shrink: 0;
+  }
+  .btn-primary .btn-spin {
+    border-color: rgba(0,0,0,.2);
+    border-top-color: #080808;
+  }
+
+  .btn-ghost {
+    background: var(--bg-4);
+    border: 1px solid var(--border-h);
+    color: var(--txt-2);
+  }
+  .btn-ghost:hover { border-color: rgba(255,255,255,.14); color: var(--txt-1); }
+
+  .btn-primary {
+    background: var(--txt-1);
+    color: #080808;
+    border: 1px solid transparent;
+    font-weight: 600;
+  }
+  .btn-primary:hover { background: #fff; box-shadow: 0 2px 12px rgba(255,255,255,.12); }
+
+  .btn-danger {
+    background: rgba(255,69,58,.1);
+    border: 1px solid rgba(255,69,58,.25);
+    color: var(--err);
+  }
+  .btn-danger:hover { background: rgba(255,69,58,.18); border-color: var(--err); }
+
+  .btn-sm {
+    padding: 4px 11px;
+    font-size: 11px;
+    border-radius: 99px;
+    min-height: 28px;
+  }
+  .btn-exit {
+    background: transparent;
+    border: 1px solid var(--border-h);
+    color: var(--txt-2);
+    font-size: 12px;
+  }
+  .btn-exit:hover { color: var(--err); border-color: rgba(255,69,58,.35); }
+
+  /* ── Cards ── */
+  .card {
+    background: var(--bg-3);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    padding: 22px 24px;
+    margin-bottom: 16px;
+  }
+  .card-title {
+    font-size: 11.5px;
+    font-weight: 600;
+    letter-spacing: .04em;
+    text-transform: uppercase;
+    color: var(--txt-2);
+    margin-bottom: 18px;
+    padding-bottom: 14px;
+    border-bottom: 1px solid var(--border);
+  }
+
+  /* ── Form row ── */
+  .form-row {
+    display: flex;
+    gap: 10px;
+    flex-wrap: wrap;
+    align-items: flex-end;
+  }
+  .fld {
+    display: flex;
+    flex-direction: column;
+    gap: 5px;
+  }
+  .fld label {
+    font-size: 11px;
+    font-weight: 500;
+    letter-spacing: -.01em;
+    color: var(--txt-2);
+  }
+
+  /* ── Filter bar ── */
+  .filter-bar {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    margin-bottom: 16px;
+  }
+  .filter-bar input { flex: 1; }
+
+  /* ── Table ── */
+  .table-wrap { overflow-x: auto; }
+  table { width: 100%; border-collapse: collapse; }
+  thead th {
+    font-size: 10.5px;
+    font-weight: 600;
+    letter-spacing: .06em;
+    text-transform: uppercase;
+    color: var(--txt-2);
+    padding: 0 10px 10px;
+    border-bottom: 1px solid var(--border);
+    text-align: left;
+    white-space: nowrap;
+  }
+  tbody tr {
+    border-bottom: 1px solid var(--border);
+    transition: background 100ms;
+  }
+  tbody tr:last-child { border-bottom: 0; }
+  tbody tr:hover { background: rgba(255,255,255,.025); }
+  td {
+    padding: 12px 10px;
+    vertical-align: middle;
+    font-size: 12.5px;
+    color: var(--txt-1);
+  }
+  .client-name { font-weight: 500; letter-spacing: -.01em; }
+  .client-notes { font-size: 11.5px; color: var(--txt-2); margin-top: 2px; }
+
+  /* ── Key mono ── */
+  .keymono {
+    font-family: var(--mono);
+    font-size: 12px;
+    letter-spacing: .06em;
+    color: var(--txt-2);
+  }
+
+  /* ── Badges ── */
+  .badge {
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+    padding: 3px 9px;
+    border-radius: 99px;
+    font-size: 11px;
+    font-weight: 600;
+    letter-spacing: .02em;
+  }
+  .badge::before {
+    content: '';
+    width: 5px; height: 5px;
+    border-radius: 50%;
+    flex-shrink: 0;
+  }
+  .b-ok   { background: rgba(52,199,89,.1);  color: var(--ok);   border: 1px solid rgba(52,199,89,.25); }
+  .b-ok::before  { background: var(--ok); }
+  .b-blk  { background: rgba(255,69,58,.1);  color: var(--err);  border: 1px solid rgba(255,69,58,.25); }
+  .b-blk::before { background: var(--err); }
+  .b-exp  { background: rgba(245,166,35,.1); color: var(--warn); border: 1px solid rgba(245,166,35,.25); }
+  .b-exp::before { background: var(--warn); }
+
+  /* ── Machines ── */
+  .machines-count {
+    font-size: 13px;
+    font-variant-numeric: tabular-nums;
+    letter-spacing: -.01em;
+  }
+  .machines-list { margin-top: 6px; display: flex; flex-direction: column; gap: 3px; }
+  .m {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    gap: 8px;
+    padding: 4px 8px;
+    background: var(--bg-4);
+    border-radius: 6px;
+  }
+  .m .keymono { font-size: 11px; }
+  .m-time { font-size: 11px; color: var(--txt-2); white-space: nowrap; }
+
+  /* ── Actions ── */
+  .actions { display: flex; gap: 5px; flex-wrap: wrap; }
+
+  /* ── Toast ── */
+  .toast {
+    position: fixed;
+    bottom: 20px;
+    right: 20px;
+    z-index: 99;
+    background: rgba(26,26,26,.95);
+    backdrop-filter: blur(20px);
+    -webkit-backdrop-filter: blur(20px);
+    border: 1px solid var(--border-h);
+    color: var(--txt-1);
+    padding: 11px 18px;
+    border-radius: var(--radius);
+    font-size: 12.5px;
+    box-shadow: var(--shadow);
+    opacity: 0;
+    transform: translateY(6px);
+    transition: opacity .18s, transform .18s;
+    pointer-events: none;
+    max-width: 320px;
+  }
+  .toast.show { opacity: 1; transform: translateY(0); }
+
+  /* ── Muted ── */
+  .muted { color: var(--txt-2); }
+  .hidden { display: none !important; }
+
+  /* ── Empty / loading states ── */
+  .empty-row td {
+    text-align: center;
+    padding: 40px 20px;
+    color: var(--txt-2);
+    font-size: 13px;
+  }
+
+  /* Skeleton shimmer */
+  @keyframes shimmer {
+    0%   { background-position: -400px 0; }
+    100% { background-position: 400px 0; }
+  }
+  .skel {
+    height: 12px;
+    border-radius: 6px;
+    background: linear-gradient(90deg, var(--bg-4) 25%, var(--bg-3) 50%, var(--bg-4) 75%);
+    background-size: 800px 100%;
+    animation: shimmer 1.4s ease-in-out infinite;
+  }
+  .skel-w-full { width: 100%; }
+  .skel-w-40   { width: 40%; }
+  .skel-w-60   { width: 60%; }
+  .skel-w-80   { width: 80%; }
+  .skel-badge  { height: 20px; width: 60px; border-radius: 99px; }
+  .sk-row td { padding: 14px 10px; }
+</style>
+</head>
+<body>
+
+<!-- Login -->
+<div id="login">
+  <div class="login-box">
+    <div class="login-logo">CONX Contabilidade</div>
+    <h2>Painel de Licenças</h2>
+    <p>Informe suas credenciais de administrador.</p>
+    <div class="fld" style="margin-bottom:10px">
+      <label for="l_user">Usuário</label>
+      <input id="l_user" type="text" placeholder="admin" autocomplete="username" onkeydown="if(event.key==='Enter')entrar()" />
+    </div>
+    <div class="fld" style="margin-bottom:12px">
+      <label for="l_pass">Senha</label>
+      <input id="l_pass" type="password" placeholder="••••••••••••" autocomplete="current-password" onkeydown="if(event.key==='Enter')entrar()" />
+    </div>
+    <button class="btn-primary" style="width:100%;min-height:38px" onclick="entrar()">Entrar</button>
+    <p id="loginErr"></p>
+  </div>
+</div>
+
+<!-- App -->
+<div id="app" class="hidden">
+  <header>
+    <div class="header-brand">
+      <div class="header-brand-dot"></div>
+      CONX
+    </div>
+    <span class="header-sep">·</span>
+    <span class="muted" style="font-size:12px">Licenças NFSe</span>
+    <span class="sp"></span>
+    <span id="stat"></span>
+    <button class="btn-ghost" onclick="carregar()">Atualizar</button>
+    <button class="btn-exit" onclick="sair()">Sair</button>
+  </header>
+
+  <div class="wrap">
+
+    <!-- Nova licença -->
+    <div class="card">
+      <div class="card-title">Nova licença</div>
+      <div class="form-row">
+        <div class="fld" style="flex:2;min-width:180px">
+          <label for="c_name">Cliente / empresa</label>
+          <input id="c_name" placeholder="Ex.: Luz em Foco" autocomplete="off" />
+        </div>
+        <div class="fld">
+          <label for="c_max">Máquinas</label>
+          <input id="c_max" type="number" min="1" value="1" style="width:90px" />
+        </div>
+        <div class="fld">
+          <label for="c_days">Validade (dias, vazio = sem)</label>
+          <input id="c_days" type="number" min="1" placeholder="∞" style="width:140px" />
+        </div>
+        <div class="fld" style="flex:1;min-width:160px">
+          <label for="c_key">Chave (vazio = gerar)</label>
+          <input id="c_key" placeholder="automático" autocomplete="off" />
+        </div>
+        <div class="fld" style="padding-bottom:1px">
+          <label style="visibility:hidden" aria-hidden="true">_</label>
+          <button id="btn-criar" class="btn-primary" onclick="criar()" style="min-height:38px;padding:0 20px">Criar licença</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- Tabela -->
+    <div class="card">
+      <div class="filter-bar">
+        <input id="filtro" placeholder="Filtrar por cliente ou chave..." oninput="render()" />
+      </div>
+      <div class="table-wrap">
+        <table>
+          <thead>
+            <tr>
+              <th>Cliente</th>
+              <th>Chave</th>
+              <th>Status</th>
+              <th>Máquinas</th>
+              <th>Validade</th>
+              <th>Último acesso</th>
+              <th></th>
+            </tr>
+          </thead>
+          <tbody id="tbody">
+            <tr class="sk-row"><td><div class="skel skel-w-60"></div></td><td><div class="skel skel-w-80" style="font-family:monospace"></div></td><td><div class="skel skel-badge"></div></td><td><div class="skel skel-w-40"></div></td><td><div class="skel skel-w-60"></div></td><td><div class="skel skel-w-60"></div></td><td></td></tr>
+            <tr class="sk-row"><td><div class="skel skel-w-80"></div></td><td><div class="skel skel-w-full"></div></td><td><div class="skel skel-badge"></div></td><td><div class="skel skel-w-40"></div></td><td><div class="skel skel-w-40"></div></td><td><div class="skel skel-w-60"></div></td><td></td></tr>
+            <tr class="sk-row"><td><div class="skel skel-w-40"></div></td><td><div class="skel skel-w-80"></div></td><td><div class="skel skel-badge"></div></td><td><div class="skel skel-w-40"></div></td><td><div class="skel skel-w-60"></div></td><td><div class="skel skel-w-40"></div></td><td></td></tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+
+  </div>
+</div>
+
+<div id="toast" class="toast"></div>
+
+<script>
+const API = '/api/admin';
+let AUTH = localStorage.getItem('conx_admin_auth') || '';
+let DATA = [];
+
+function toast(msg) {
+  const t = document.getElementById('toast');
+  t.textContent = msg;
+  t.classList.add('show');
+  setTimeout(() => t.classList.remove('show'), 2800);
+}
+
+async function api(op, extra = {}) {
+  const r = await fetch(API, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', 'Authorization': 'Basic ' + AUTH },
+    body: JSON.stringify({ op, ...extra }),
+  });
+  const d = await r.json().catch(() => ({ ok: false, message: 'resposta inválida' }));
+  if (r.status === 401) { sair(); throw new Error('Usuário ou senha incorretos'); }
+  if (!d.ok) throw new Error(d.message || 'erro');
+  return d;
+}
+
+function setLoading(btn, loading, label) {
+  if (!btn) return;
+  btn.disabled = loading;
+  btn.classList.toggle('loading', loading);
+  if (loading) {
+    btn._orig = btn.innerHTML;
+    btn.innerHTML = `<span class="btn-spin"></span>${label || ''}`;
+  } else {
+    btn.innerHTML = btn._orig || btn.innerHTML;
+  }
+}
+
+async function entrar() {
+  const user = document.getElementById('l_user').value.trim();
+  const pass = document.getElementById('l_pass').value;
+  if (!user || !pass) { document.getElementById('loginErr').textContent = 'Preencha usuário e senha.'; return; }
+  AUTH = btoa(user + ':' + pass);
+  const btn = document.querySelector('#login .btn-primary');
+  setLoading(btn, true, 'Entrando...');
+  try {
+    await api('list');
+    localStorage.setItem('conx_admin_auth', AUTH);
+    document.getElementById('login').classList.add('hidden');
+    document.getElementById('app').classList.remove('hidden');
+    carregar();
+  } catch (e) {
+    document.getElementById('loginErr').textContent = e.message;
+    AUTH = '';
+    setLoading(btn, false);
+  }
+}
+
+function sair() { AUTH = ''; localStorage.removeItem('conx_admin_auth'); location.reload(); }
+
+async function carregar() {
+  const btn = document.querySelector('header .btn-ghost');
+  if (btn) setLoading(btn, true);
+  try {
+    const d = await api('list');
+    DATA = d.items || [];
+    document.getElementById('stat').textContent = d.total + ' licença' + (d.total !== 1 ? 's' : '');
+    render();
+  } catch (e) { toast('Erro: ' + e.message); }
+  finally { if (btn) setLoading(btn, false); }
+}
+
+function fmtDate(iso) {
+  if (!iso) return '—';
+  const d = new Date(iso);
+  return d.toLocaleString('pt-BR', { day: '2-digit', month: '2-digit', year: '2-digit', hour: '2-digit', minute: '2-digit' });
+}
+function isExpired(it) { return it.expiresAt && Date.now() > new Date(it.expiresAt).getTime(); }
+
+function render() {
+  const f = (document.getElementById('filtro').value || '').toLowerCase();
+  const tb = document.getElementById('tbody');
+  const items = DATA.filter(it =>
+    !f || (it.clientName || '').toLowerCase().includes(f) || it.key.toLowerCase().includes(f.replace(/[^a-z0-9]/g, ''))
+  );
+
+  if (!items.length) {
+    tb.innerHTML = '<tr class="empty-row"><td colspan="7">Nenhuma licença encontrada.</td></tr>';
+    return;
+  }
+
+  tb.innerHTML = items.map(it => {
+    const badge = it.status === 'blocked'
+      ? '<span class="badge b-blk">Bloqueada</span>'
+      : isExpired(it)
+        ? '<span class="badge b-exp">Expirada</span>'
+        : '<span class="badge b-ok">Ativa</span>';
+
+    const machList = Object.entries(it.machines || {}).map(([id, m]) =>
+      `<div class="m">
+        <span class="keymono">${id.slice(0, 16)}</span>
+        <span class="m-time">${fmtDate(m.lastSeen)}
+          <button class="btn-danger btn-sm" onclick="rmMachine('${it.key}','${id}')" style="margin-left:4px">×</button>
+        </span>
+      </div>`
+    ).join('');
+
+    return `<tr>
+      <td>
+        <div class="client-name">${esc(it.clientName) || '<span class="muted">—</span>'}</div>
+        ${it.notes ? `<div class="client-notes">${esc(it.notes)}</div>` : ''}
+      </td>
+      <td><span class="keymono">${it.keyFmt}</span></td>
+      <td>${badge}</td>
+      <td>
+        <div class="machines-count">${it.machineCount}<span class="muted"> / ${it.maxMachines}</span></div>
+        ${machList ? `<div class="machines-list">${machList}</div>` : ''}
+      </td>
+      <td class="muted">${it.expiresAt ? fmtDate(it.expiresAt) : '<span style="color:var(--txt-3)">sem validade</span>'}</td>
+      <td class="muted">${fmtDate(it.lastSeen)}</td>
+      <td>
+        <div class="actions">
+          ${it.status === 'blocked'
+            ? `<button class="btn-ghost btn-sm" onclick="setStatus('${it.key}','unblock')">Desbloquear</button>`
+            : `<button class="btn-danger btn-sm" onclick="setStatus('${it.key}','block')">Bloquear</button>`}
+          <button class="btn-ghost btn-sm" onclick="editar('${it.key}')">Editar</button>
+          <button class="btn-ghost btn-sm" onclick="copiar('${it.keyFmt}')">Copiar</button>
+          <button class="btn-danger btn-sm" onclick="apagar('${it.key}')">Excluir</button>
+        </div>
+      </td>
+    </tr>`;
+  }).join('');
+}
+
+function esc(s) {
+  return String(s || '').replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
+}
+
+async function criar() {
+  const clientName = document.getElementById('c_name').value.trim();
+  const maxMachines = Number(document.getElementById('c_max').value || 1);
+  const daysRaw = document.getElementById('c_days').value;
+  const key = document.getElementById('c_key').value.trim();
+  if (!clientName) { toast('Informe o nome do cliente.'); return; }
+  const btn = document.getElementById('btn-criar');
+  setLoading(btn, true, 'Criando...');
+  try {
+    const d = await api('create', { clientName, maxMachines, days: daysRaw === '' ? null : Number(daysRaw), key: key || undefined });
+    document.getElementById('c_name').value = '';
+    document.getElementById('c_days').value = '';
+    document.getElementById('c_key').value = '';
+    await navigator.clipboard?.writeText(d.keyFmt).catch(() => {});
+    toast('Criada: ' + d.keyFmt + ' (copiada)');
+    carregar();
+  } catch (e) { toast('Erro: ' + e.message); }
+  finally { setLoading(btn, false); }
+}
+
+async function setStatus(key, op) {
+  try { await api(op, { key }); carregar(); } catch (e) { toast('Erro: ' + e.message); }
+}
+
+async function rmMachine(key, machine_id) {
+  if (!confirm('Liberar esta máquina da licença?')) return;
+  try { await api('removeMachine', { key, machine_id }); carregar(); } catch (e) { toast('Erro: ' + e.message); }
+}
+
+async function apagar(key) {
+  if (!confirm('Excluir esta licença? O cliente perderá o acesso.')) return;
+  try { await api('delete', { key }); carregar(); } catch (e) { toast('Erro: ' + e.message); }
+}
+
+async function editar(key) {
+  const it = DATA.find(x => x.key === key); if (!it) return;
+  const name = prompt('Cliente:', it.clientName || ''); if (name === null) return;
+  const max = prompt('Máximo de máquinas:', it.maxMachines); if (max === null) return;
+  const days = prompt('Validade em dias a partir de AGORA (vazio = manter; 0 = sem validade):', ''); if (days === null) return;
+  const extra = { key, clientName: name, maxMachines: Number(max) };
+  if (days !== '') extra.days = Number(days) === 0 ? null : Number(days);
+  try { await api('update', extra); toast('Atualizada.'); carregar(); } catch (e) { toast('Erro: ' + e.message); }
+}
+
+function copiar(txt) { navigator.clipboard?.writeText(txt); toast('Chave copiada: ' + txt); }
+
+// auto-login se já tem credenciais salvas
+if (AUTH) entrar();
+</script>
+</body>
+</html>
