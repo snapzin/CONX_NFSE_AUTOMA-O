@@ -15,6 +15,7 @@ from __future__ import annotations
 
 import os
 import re
+import sys
 import warnings
 from concurrent.futures import ProcessPoolExecutor, ThreadPoolExecutor
 from dataclasses import dataclass
@@ -201,6 +202,12 @@ def listar_certificados(
 
     if use_processes is None:
         use_processes = len(arquivos) > 8
+
+    # No app empacotado (PyInstaller), ProcessPoolExecutor quebra com
+    # BrokenProcessPool (os processos-filho nao conseguem inicializar). Usa
+    # threads nesse caso — mais lento, mas confiavel. No modo dev mantem processos.
+    if getattr(sys, "frozen", False):
+        use_processes = False
 
     cpu = os.cpu_count() or 4
     if max_workers is None:
