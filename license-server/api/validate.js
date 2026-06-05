@@ -6,7 +6,7 @@
 //   VALID_KEYS     = chaves legadas (compat com versao antiga; opcional)
 //   UPSTASH_REDIS_REST_URL / UPSTASH_REDIS_REST_TOKEN = banco (Upstash)
 import {
-  getRecord, saveRecord, LEGACY_KEYS, normalizeKey, setCors,
+  getRecord, saveRecord, LEGACY_KEYS, normalizeKey, setCors, getGeoIP,
 } from './_lib.js';
 
 const CONTACT = 'zayonantunes@gmail.com';
@@ -53,12 +53,13 @@ export default async function handler(req, res) {
     return res.status(429).json({ valid: false, message: 'Muitas requisicoes. Tente novamente.' });
   }
 
-  const { key, machine_id, machine_name } = req.body || {};
+  const { key, machine_id, machine_name, machine_os } = req.body || {};
   if (!key) return res.status(400).json({ valid: false, message: 'Chave nao informada' });
 
   const k     = normalizeKey(key);
   const mid   = String(machine_id || 'unknown');
   const mname = String(machine_name || '').trim().slice(0, 64);
+  const mos   = String(machine_os   || '').trim().slice(0, 64);
   const inval = (msg) => res.status(200).json({ valid: false, message: msg });
 
   try {
@@ -82,11 +83,27 @@ export default async function handler(req, res) {
     const nowIso   = new Date().toISOString();
 
     if (machines[mid]) {
+      const ipChanged = machines[mid].ip !== ip;
       machines[mid].lastSeen = nowIso;
       machines[mid].ip       = ip;
       if (mname) machines[mid].name = mname;
+      if (mos)   machines[mid].os   = mos;
+      if (ipChanged) {
+        const geo = await getGeoIP(ip).catch(() => null);
+        machines[mid].geo = geo
+          ? { city: geo.city, region: geo.regionName, country: geo.country, countryCode: geo.countryCode, isp: geo.isp }
+          : null;
+      }
     } else if (Object.keys(machines).length < max) {
-      machines[mid] = { firstSeen: nowIso, lastSeen: nowIso, ip, name: mname || null };
+      const geo = await getGeoIP(ip).catch(() => null);
+      machines[mid] = {
+        firstSeen: nowIso,
+        lastSeen:  nowIso,
+        ip,
+        name: mname || null,
+        os:   mos   || null,
+        geo:  geo ? { city: geo.city, region: geo.regionName, country: geo.country, countryCode: geo.countryCode, isp: geo.isp } : null,
+      };
     } else {
       return inval(`Limite de ${max} maquina(s) atingido para esta licenca. Contato: ${CONTACT}`);
     }
