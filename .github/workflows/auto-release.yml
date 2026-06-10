@@ -1,0 +1,98 @@
+name: Auto Release
+
+on:
+  push:
+    branches:
+      - main
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build-and-publish:
+    name: Build and publish Windows update
+    runs-on: windows-latest
+
+    env:
+      PYTHONUTF8: "1"
+      PYTHONIOENCODING: utf-8
+      ELECTRON_CACHE: ${{ github.workspace }}\.cache\electron
+      ELECTRON_BUILDER_CACHE: ${{ github.workspace }}\.cache\electron-builder
+      GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+
+      - name: Install Python dependencies
+        shell: pwsh
+        run: |
+          python -m pip install --upgrade pip pyinstaller
+          python -m pip install -r requirements.txt
+
+      - name: Create default config
+        shell: pwsh
+        run: |
+          python -c "from config_defaults import ensure_config_file; ensure_config_file()"
+
+      - name: Build Python backend
+        shell: pwsh
+        run: |
+          python -m PyInstaller api\server.spec --noconfirm --clean
+          Copy-Item -Path config.py -Destination dist\server\config.py -Force
+          (Get-Content dist\server\config.py) `
+            -replace '^LICENSE_ADMIN_TOKEN\s*=.*', "LICENSE_ADMIN_TOKEN = ''" |
+            Set-Content dist\server\config.py -Encoding UTF8
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: npm
+          cache-dependency-path: electron/package-lock.json
+
+      - name: Install Electron dependencies
+        working-directory: electron
+        run: npm ci
+
+      - name: Set auto version
+        shell: pwsh
+        run: |
+          $pkgPath = "electron\package.json"
+          $pkg = Get-Content $pkgPath -Raw | ConvertFrom-Json
+          $parts = [string]$pkg.version -split "\."
+          $major = [int]$parts[0]
+          $minor = [int]$parts[1]
+          $patch = 1000 + [int]$env:GITHUB_RUN_NUMBER
+          $pkg.version = "$major.$minor.$patch"
+          $pkg | ConvertTo-Json -Depth 20 | Set-Content $pkgPath -Encoding UTF8
+          "APP_VERSION=$($pkg.version)" | Out-File -FilePath $env:GITHUB_ENV -Append
+          Write-Host "Release version: $($pkg.version)"
+
+      - name: Build renderer
+        working-directory: electron
+        run: npm run build:renderer
+
+      - name: Publish GitHub release
+        working-directory: electron
+        shell: pwsh
+        run: |
+          npx electron-builder --win nsis --publish always
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Upload installer artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: NFSe-Automacao-${{ env.APP_VERSION }}
+          path: |
+            electron/dist/*.exe
+            electron/dist/latest.yml
+            electron/dist/*.blockmap

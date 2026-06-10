@@ -1323,6 +1323,57 @@ input::placeholder {
   opacity: 1;
 }
 
+.license-gate {
+  min-height: 100vh;
+  display: grid;
+  place-items: center;
+  padding: 28px;
+  background: var(--bg);
+}
+
+.license-gate-panel {
+  width: min(460px, 100%);
+  border: 1px solid var(--line);
+  border-radius: var(--radius-lg);
+  background: var(--panel);
+  padding: 30px;
+  box-shadow: var(--shadow-2);
+  text-align: center;
+}
+
+.license-gate-icon {
+  width: 42px;
+  height: 42px;
+  margin: 0 auto 16px;
+  display: grid;
+  place-items: center;
+  border-radius: 50%;
+  color: var(--danger);
+  background: rgba(255,69,58,0.1);
+}
+
+.license-gate h1 {
+  margin: 0 0 10px;
+  font-size: 22px;
+  font-weight: 700;
+  color: var(--text-1);
+}
+
+.license-gate p {
+  margin: 0;
+  font-size: 13px;
+  line-height: 1.5;
+  color: var(--text-2);
+}
+
+.license-gate-actions {
+  margin-top: 22px;
+  display: flex;
+  justify-content: center;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
 /* ─── Responsive ──────────────────────────────── */
 @media (max-width: 900px) {
   .sidebar { width: 180px; flex-basis: 180px; }

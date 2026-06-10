@@ -3,6 +3,7 @@ const { spawn, exec } = require('child_process');
 const { randomBytes } = require('crypto');
 const path = require('path');
 const fs = require('fs');
+const { createLicenseClient, getLicenseSettings } = require('./license-client');
 
 // Auto-update via GitHub Releases (repo publico snapzin/CONX_NFSE_AUTOMA-O).
 // Só roda no app empacotado; em dev é ignorado.
@@ -14,13 +15,23 @@ const API_TOKEN = randomBytes(32).toString('hex');
 
 let mainWindow;
 let pythonProcess;
+let licenseClient;
 
 const API_PORT = 17432;
 const API_URL = `http://127.0.0.1:${API_PORT}`;
 
+const isLocalLicenseExemptEndpoint = (endpoint) => {
+  if (endpoint === '/health') return true;
+  if (/^\/executar\/[^/]+\/status$/.test(endpoint)) return true;
+  if (/^\/executar\/[^/]+\/cancelar$/.test(endpoint)) return true;
+  return false;
+};
+
 // Detectar se está em modo produção (empacotado)
 const isProd = app.isPackaged;
 const DEV_RENDERER_URL = process.env.VITE_DEV_SERVER_URL || 'http://127.0.0.1:5173';
+const UPDATE_CHECK_INTERVAL_MS = 30 * 60 * 1000;
+let updateCheckTimer = null;
 
 const getProjectRoot = () => process.env.NFSE_PROJECT_ROOT || path.join(__dirname, '..');
 
@@ -53,10 +64,13 @@ const startPythonBackend = () => {
     let command, args, cwd;
 
     if (isProd && process.platform === 'win32') {
-      // Produção Windows: server.exe standalone (PyInstaller) em resources/backend/
-      command = path.join(process.resourcesPath, 'backend', 'server.exe');
+      // Producao Windows: prefere backend-vercel para permitir troca sem brigar
+      // com um server.exe antigo que ainda esteja travado pelo Windows.
+      const vercelBackend = path.join(process.resourcesPath, 'backend-vercel', 'server.exe');
+      const defaultBackend = path.join(process.resourcesPath, 'backend', 'server.exe');
+      command = fs.existsSync(vercelBackend) ? vercelBackend : defaultBackend;
       args = [];
-      cwd = path.join(process.resourcesPath, 'backend');
+      cwd = path.dirname(command);
     } else {
       // Desenvolvimento ou macOS: usa Python do projeto
       command = getPythonPath();
@@ -66,6 +80,7 @@ const startPythonBackend = () => {
     }
 
     console.log(`[Main] Iniciando backend: ${command}`);
+    const licenseSettings = getLicenseSettings();
 
     pythonProcess = spawn(command, args, {
       stdio: ['ignore', 'pipe', 'pipe'],
@@ -77,6 +92,11 @@ const startPythonBackend = () => {
         PYTHONUTF8: '1',
         PYTHONUNBUFFERED: '1',
         NFSE_API_TOKEN: API_TOKEN,
+        NFSE_LICENSE_SERVER_URL: licenseSettings.serverUrl,
+        NFSE_LICENSE_VALIDATE_URL: licenseSettings.validationUrl,
+        NFSE_LICENSE_ADMIN_URL: licenseSettings.adminUrl,
+        NFSE_CLIENTES_URL: licenseSettings.clientesUrl,
+        NFSE_CLIENT_SECRET: licenseSettings.clientSecret,
       },
     });
 
@@ -169,6 +189,33 @@ const createWindow = () => {
   });
 };
 
+const setupAutoUpdates = () => {
+  if (!autoUpdater || !app.isPackaged) return;
+
+  autoUpdater.autoDownload = true;
+
+  autoUpdater.on('update-downloaded', (info) => {
+    if (mainWindow && !mainWindow.isDestroyed()) {
+      dialog.showMessageBox(mainWindow, {
+        type: 'info',
+        title: 'Atualizacao disponivel',
+        message: `Nova versao ${info?.version || ''} baixada.`,
+        detail: 'O app vai reiniciar para aplicar a atualizacao.',
+        buttons: ['Reiniciar agora', 'Depois'],
+      }).then((r) => { if (r.response === 0) autoUpdater.quitAndInstall(); });
+    }
+  });
+
+  autoUpdater.on('error', (e) => console.warn('[AutoUpdate]', e?.message));
+
+  const check = () => {
+    autoUpdater.checkForUpdates().catch((e) => console.warn('[AutoUpdate]', e?.message));
+  };
+
+  check();
+  updateCheckTimer = setInterval(check, UPDATE_CHECK_INTERVAL_MS);
+};
+
 // ============================================================================
 // IPC handlers (comunicação renderer → main)
 // ============================================================================
@@ -181,12 +228,22 @@ ipcMain.handle('select-folder', async () => {
 
 ipcMain.handle('api-call', async (event, method, endpoint, body) => {
   try {
+    const headers = {
+      'Content-Type': 'application/json',
+      'x-api-token': API_TOKEN,
+    };
+
+    if (!isLocalLicenseExemptEndpoint(endpoint)) {
+      const key = licenseClient?.getSavedKey?.();
+      if (!key) {
+        throw new Error('Licenca nao ativada no servidor da Vercel.');
+      }
+      headers['x-license-key'] = key;
+    }
+
     const options = {
       method,
-      headers: {
-        'Content-Type': 'application/json',
-        'x-api-token': API_TOKEN,
-      },
+      headers,
       signal: AbortSignal.timeout(30000),
     };
 
@@ -208,11 +265,25 @@ ipcMain.handle('api-call', async (event, method, endpoint, body) => {
   }
 });
 
+ipcMain.handle('license-status', async () => {
+  return licenseClient.status();
+});
+
+ipcMain.handle('license-activate', async (event, key) => {
+  return licenseClient.activate(key);
+});
+
+ipcMain.handle('license-deactivate', async () => {
+  return licenseClient.deactivate();
+});
+
 // ============================================================================
 // App lifecycle
 // ============================================================================
 app.on('ready', async () => {
   try {
+    licenseClient = createLicenseClient(app);
+
     // Remove o menu padrao (File, Edit, View, Window, Help)
     Menu.setApplicationMenu(null);
 
@@ -260,24 +331,7 @@ app.on('ready', async () => {
     }
     createWindow();
 
-    // Verifica atualizacao (so no app empacotado). Baixa em segundo plano e
-    // instala ao fechar; avisa o usuario quando estiver pronta.
-    if (autoUpdater && app.isPackaged) {
-      autoUpdater.autoDownload = true;
-      autoUpdater.on('update-downloaded', (info) => {
-        if (mainWindow && !mainWindow.isDestroyed()) {
-          dialog.showMessageBox(mainWindow, {
-            type: 'info',
-            title: 'Atualizacao disponivel',
-            message: `Nova versao ${info?.version || ''} baixada.`,
-            detail: 'O app vai reiniciar para aplicar a atualizacao.',
-            buttons: ['Reiniciar agora', 'Depois'],
-          }).then((r) => { if (r.response === 0) autoUpdater.quitAndInstall(); });
-        }
-      });
-      autoUpdater.on('error', (e) => console.warn('[AutoUpdate]', e?.message));
-      autoUpdater.checkForUpdates().catch((e) => console.warn('[AutoUpdate]', e?.message));
-    }
+    setupAutoUpdates();
   } catch (error) {
     console.error('[Main] Erro fatal:', error);
     app.quit();
@@ -285,6 +339,11 @@ app.on('ready', async () => {
 });
 
 app.on('window-all-closed', () => {
+  if (updateCheckTimer) {
+    clearInterval(updateCheckTimer);
+    updateCheckTimer = null;
+  }
+
   // Encerra processo Python ao fechar o app
   if (pythonProcess) {
     try {

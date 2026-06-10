@@ -36,35 +36,112 @@
   .b-exp { background:rgba(255,204,0,.15); color:var(--warn); }
   .machines { font-size:12px; color:var(--txt2); }
   .machines .m { display:flex; justify-content:space-between; gap:8px; padding:2px 0; }
+  .machines .m.blocked { opacity:.75; }
   .toast { position:fixed; bottom:18px; right:18px; background:#1f1f23; border:1px solid var(--line);
            padding:12px 16px; border-radius:10px; opacity:0; transition:.2s; }
   .toast.show { opacity:1; }
-  #login { max-width:420px; margin:12vh auto; }
+  #login {
+    position: fixed;
+    left: 50%;
+    top: 50%;
+    width: min(440px, calc(100vw - 32px));
+    margin: 0;
+    transform: translate(-50%, -50%);
+  }
+  #login.hidden { display:none; }
+  .login-card {
+    padding: 0;
+    overflow: hidden;
+    border-color: rgba(255,255,255,.11);
+    box-shadow: 0 22px 80px rgba(0,0,0,.48);
+  }
+  .login-head {
+    padding: 28px 28px 20px;
+    border-bottom: 1px solid var(--line);
+    background: #19191c;
+  }
+  .login-mark {
+    width: 44px;
+    height: 44px;
+    display: grid;
+    place-items: center;
+    margin-bottom: 18px;
+    border: 1px solid rgba(52,199,89,.32);
+    border-radius: 12px;
+    background: rgba(52,199,89,.1);
+    color: var(--ok);
+    font-weight: 800;
+    letter-spacing: .04em;
+  }
+  .login-title { margin:0; font-size:22px; line-height:1.15; letter-spacing:-.02em; }
+  .login-subtitle { margin:9px 0 0; color:var(--txt2); font-size:13px; }
+  .login-body { padding:24px 28px 28px; }
+  .login-fields { display:grid; gap:14px; }
+  .login-fields .fld { gap:6px; }
+  .login-fields input { width:100%; padding:11px 12px; }
+  .login-fields input:focus {
+    outline: none;
+    border-color: rgba(52,199,89,.55);
+    box-shadow: 0 0 0 3px rgba(52,199,89,.12);
+  }
+  .login-action {
+    width: 100%;
+    justify-content: center;
+    margin-top: 4px;
+    padding: 11px 14px;
+  }
+  .login-action:hover { filter: brightness(1.04); }
+  .login-foot {
+    display:flex;
+    align-items:center;
+    gap:8px;
+    margin-top:16px;
+    color:var(--txt2);
+    font-size:12px;
+  }
+  .login-dot {
+    width:8px;
+    height:8px;
+    border-radius:50%;
+    background:var(--ok);
+    box-shadow:0 0 0 4px rgba(52,199,89,.12);
+  }
+  #loginErr { min-height:18px; margin:12px 0 0; color:var(--err); }
   .hidden { display:none; }
   .actions { display:flex; gap:6px; flex-wrap:wrap; }
 </style>
 </head>
 <body>
 
-<div id="login" class="card">
-  <h1 style="margin-top:0">🔐 Painel de Licenças CONX</h1>
-  <p class="muted">Informe o token de administrador.</p>
-  <div class="row">
-    <div class="fld" style="flex:1">
-      <label>Admin token</label>
-      <input id="token" type="password" placeholder="ADMIN_TOKEN" />
+<form id="login" class="card login-card" onsubmit="entrar(); return false;">
+  <div class="login-head">
+    <div class="login-mark">CX</div>
+    <h1 class="login-title">Painel de Licencas</h1>
+    <p class="login-subtitle">Acesso administrativo CONX para gerenciar chaves, maquinas e usuarios.</p>
+  </div>
+  <div class="login-body">
+  <div class="login-fields">
+    <div class="fld">
+      <label>Usuario</label>
+      <input id="user" type="text" placeholder="seu usuario" autocomplete="username" required autofocus />
     </div>
-    <button class="primary" onclick="entrar()">Entrar</button>
+    <div class="fld">
+      <label>Senha</label>
+      <input id="pass" type="password" placeholder="sua senha" autocomplete="current-password" required />
+    </div>
+    <button class="primary login-action" type="submit">Entrar no painel</button>
   </div>
   <p id="loginErr" class="muted"></p>
-</div>
+  <div class="login-foot"><span class="login-dot"></span><span>Conexao protegida pela Vercel e Redis.</span></div>
+  </div>
+</form>
 
 <div id="app" class="hidden">
   <header>
     <strong>CONX</strong> <span class="muted">Licenças NFSe</span>
     <span class="sp"></span>
     <span id="stat" class="muted"></span>
-    <button onclick="carregar()">Atualizar</button>
+    <button onclick="carregar(); carregarUsuarios();">Atualizar</button>
     <button class="danger" onclick="sair()">Sair</button>
   </header>
 
@@ -78,6 +155,19 @@
         <div class="fld" style="flex:1"><label>Chave (vazio = gerar)</label><input id="c_key" placeholder="auto" /></div>
         <button class="primary" onclick="criar()">Criar licença</button>
       </div>
+    </div>
+
+    <div class="card">
+      <h3 style="margin-top:0">Usuarios admin</h3>
+      <div class="row" style="margin-bottom:12px">
+        <div class="fld" style="flex:1"><label>Novo usuario</label><input id="u_name" placeholder="usuario" autocomplete="off" /></div>
+        <div class="fld" style="flex:1"><label>Senha</label><input id="u_pass" type="password" placeholder="minimo 8 caracteres" autocomplete="new-password" /></div>
+        <button class="primary" onclick="criarUsuario()">Criar usuario</button>
+      </div>
+      <table>
+        <thead><tr><th>Usuario</th><th>Origem</th><th>Criado em</th><th>Acoes</th></tr></thead>
+        <tbody id="users-body"><tr><td colspan="4" class="muted">Carregando...</td></tr></tbody>
+      </table>
     </div>
 
     <div class="card">
@@ -99,32 +189,106 @@
 
 <script>
 const API = '/api/admin';
-let TOKEN = localStorage.getItem('conx_admin_token') || '';
+localStorage.removeItem('conx_admin_token');
+let ADMIN_USER = sessionStorage.getItem('conx_admin_user') || '';
+let ADMIN_PASS = sessionStorage.getItem('conx_admin_pass') || '';
 let DATA = [];
 
 function toast(msg) { const t=document.getElementById('toast'); t.textContent=msg; t.classList.add('show'); setTimeout(()=>t.classList.remove('show'),2600); }
 
 async function api(op, extra={}) {
-  const r = await fetch(API, { method:'POST', headers:{'Content-Type':'application/json','x-admin-token':TOKEN}, body:JSON.stringify({op, ...extra}) });
+  const r = await fetch(API, {
+    method:'POST',
+    headers:{
+      'Content-Type':'application/json',
+      'x-admin-user':ADMIN_USER,
+      'x-admin-pass':ADMIN_PASS
+    },
+    body:JSON.stringify({op, ...extra})
+  });
   const d = await r.json().catch(()=>({ok:false,message:'resposta invalida'}));
-  if (r.status === 401) { sair(); throw new Error('Token invalido'); }
+  if (r.status === 401) { sair(false); throw new Error('Usuario ou senha invalidos'); }
   if (!d.ok) throw new Error(d.message || 'erro');
   return d;
 }
 
 async function entrar() {
-  TOKEN = document.getElementById('token').value.trim();
-  try { await api('list'); localStorage.setItem('conx_admin_token', TOKEN);
+  ADMIN_USER = document.getElementById('user').value.trim();
+  ADMIN_PASS = document.getElementById('pass').value;
+  try { await api('list');
+    sessionStorage.setItem('conx_admin_user', ADMIN_USER);
+    sessionStorage.setItem('conx_admin_pass', ADMIN_PASS);
     document.getElementById('login').classList.add('hidden');
-    document.getElementById('app').classList.remove('hidden'); carregar();
+    document.getElementById('app').classList.remove('hidden');
+    carregar();
+    carregarUsuarios();
   } catch(e) { document.getElementById('loginErr').textContent = '❌ ' + e.message; }
 }
-function sair() { localStorage.removeItem('conx_admin_token'); location.reload(); }
+function sair(reload=true) {
+  sessionStorage.removeItem('conx_admin_user');
+  sessionStorage.removeItem('conx_admin_pass');
+  sessionStorage.removeItem('conx_admin_token');
+  localStorage.removeItem('conx_admin_token');
+  if (reload) location.reload();
+}
 
 async function carregar() {
   try { const d = await api('list'); DATA = d.items || [];
     document.getElementById('stat').textContent = d.total + ' licença(s)';
     render();
+  } catch(e) { toast('Erro: ' + e.message); }
+}
+
+async function carregarUsuarios() {
+  try {
+    const d = await api('listUsers');
+    renderUsuarios(d.users || []);
+  } catch(e) {
+    const tb = document.getElementById('users-body');
+    if (tb) tb.innerHTML = '<tr><td colspan="4" class="muted">Erro ao carregar usuarios.</td></tr>';
+  }
+}
+
+function renderUsuarios(users) {
+  const tb = document.getElementById('users-body');
+  if (!tb) return;
+  if (!users.length) {
+    tb.innerHTML = '<tr><td colspan="4" class="muted">Nenhum usuario criado.</td></tr>';
+    return;
+  }
+  tb.innerHTML = users.map((u) => {
+    const isEnv = u.source === 'env';
+    return `<tr>
+      <td class="keymono">${esc(u.username)}</td>
+      <td>${isEnv ? 'Vercel env' : 'Painel'}</td>
+      <td>${u.createdAt ? esc(fmtDate(u.createdAt)) : '<span class="muted">externo</span>'}</td>
+      <td>${isEnv ? '<span class="muted">root</span>' : `<button class="danger" data-user-delete="${esc(u.username)}">Excluir</button>`}</td>
+    </tr>`;
+  }).join('');
+  tb.querySelectorAll('[data-user-delete]').forEach((btn) => {
+    btn.addEventListener('click', () => apagarUsuario(btn.dataset.userDelete));
+  });
+}
+
+async function criarUsuario() {
+  const username = document.getElementById('u_name').value.trim();
+  const password = document.getElementById('u_pass').value;
+  if (!username || !password) { toast('Informe usuario e senha.'); return; }
+  try {
+    await api('createUser', { username, password });
+    document.getElementById('u_name').value = '';
+    document.getElementById('u_pass').value = '';
+    toast('Usuario criado.');
+    carregarUsuarios();
+  } catch(e) { toast('Erro: ' + e.message); }
+}
+
+async function apagarUsuario(username) {
+  if (!confirm(`Excluir o usuario "${username}"?`)) return;
+  try {
+    await api('deleteUser', { username });
+    toast('Usuario excluido.');
+    carregarUsuarios();
   } catch(e) { toast('Erro: ' + e.message); }
 }
 
@@ -140,27 +304,53 @@ function render() {
     const badge = it.status==='blocked' ? '<span class="badge b-blk">BLOQUEADA</span>'
                 : isExpired(it) ? '<span class="badge b-exp">EXPIRADA</span>'
                 : '<span class="badge b-ok">ATIVA</span>';
-    const machs = Object.entries(it.machines||{}).map(([id,m])=>
-      `<div class="m"><span class="keymono">${id.slice(0,16)}</span><span>${fmtDate(m.lastSeen)} <button class="danger" style="padding:1px 6px" onclick="rmMachine('${it.key}','${id}')">×</button></span></div>`).join('') || '<span class="muted">nenhuma</span>';
+    const machs = Object.entries(it.machines||{}).map(([id,m])=> {
+      const blocked = m && m.status === 'blocked';
+      const action = blocked
+        ? `<button style="padding:1px 6px" data-action="unblock-machine" data-key="${esc(it.key)}" data-machine-id="${esc(id)}">Desbloquear</button>`
+        : `<button class="danger" style="padding:1px 6px" data-action="block-machine" data-key="${esc(it.key)}" data-machine-id="${esc(id)}">Bloquear</button>`;
+      const clientCount = Number(m?.clientCount || 0);
+      const clientInfo = m?.clientsUpdatedAt
+        ? ` - ${clientCount} cliente(s)`
+        : '';
+      return `<div class="m ${blocked?'blocked':''}"><span><span class="keymono">${esc(id.slice(0,16))}</span>${blocked?' <span class="badge b-blk">BLOQ</span>':''}${esc(clientInfo)}</span><span>${esc(fmtDate(m.lastSeen))} ${action}</span></div>`;
+    }).join('') || '<span class="muted">nenhuma</span>';
     return `<tr>
       <td><strong>${esc(it.clientName)||'<span class=muted>—</span>'}</strong>${it.notes?`<br><span class="muted">${esc(it.notes)}</span>`:''}</td>
-      <td class="keymono">${it.keyFmt}</td>
+      <td class="keymono">${esc(it.keyFmt)}</td>
       <td>${badge}</td>
-      <td><div class="machines">${it.machineCount}/${it.maxMachines}${machs?'<br>'+machs:''}</div></td>
-      <td>${it.expiresAt?fmtDate(it.expiresAt):'<span class="muted">sem</span>'}</td>
-      <td>${fmtDate(it.lastSeen)}</td>
+      <td><div class="machines">${esc(it.machineCount)}/${esc(it.maxMachines)}${machs?'<br>'+machs:''}</div></td>
+      <td>${it.expiresAt?esc(fmtDate(it.expiresAt)):'<span class="muted">sem</span>'}</td>
+      <td>${esc(fmtDate(it.lastSeen))}</td>
       <td><div class="actions">
         ${it.status==='blocked'
-          ? `<button onclick="setStatus('${it.key}','unblock')">Desbloquear</button>`
-          : `<button class="danger" onclick="setStatus('${it.key}','block')">Bloquear</button>`}
-        <button onclick="editar('${it.key}')">Editar</button>
-        <button onclick="copiar('${it.keyFmt}')">Copiar</button>
-        <button class="danger" onclick="apagar('${it.key}')">Excluir</button>
+          ? `<button data-action="unblock" data-key="${esc(it.key)}">Desbloquear</button>`
+          : `<button class="danger" data-action="block" data-key="${esc(it.key)}">Bloquear</button>`}
+        <button data-action="edit" data-key="${esc(it.key)}">Editar</button>
+        <button data-action="copy" data-copy="${esc(it.keyFmt)}">Copiar</button>
+        <button class="danger" data-action="delete" data-key="${esc(it.key)}">Excluir</button>
       </div></td>
     </tr>`;
   }).join('');
+  bindRowActions(tb);
 }
-function esc(s){ return String(s||'').replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c])); }
+function esc(s){ return String(s ?? '').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c])); }
+function bindRowActions(root) {
+  root.querySelectorAll('[data-action]').forEach((btn) => {
+    btn.addEventListener('click', () => {
+      const action = btn.dataset.action;
+      const key = btn.dataset.key;
+      const machineId = btn.dataset.machineId;
+      if (action === 'block') return setStatus(key, 'block');
+      if (action === 'unblock') return setStatus(key, 'unblock');
+      if (action === 'block-machine') return rmMachine(key, machineId);
+      if (action === 'unblock-machine') return unblockMachine(key, machineId);
+      if (action === 'edit') return editar(key);
+      if (action === 'copy') return copiar(btn.dataset.copy || '');
+      if (action === 'delete') return apagar(key);
+    });
+  });
+}
 
 async function criar() {
   const clientName=document.getElementById('c_name').value.trim();
@@ -175,7 +365,8 @@ async function criar() {
   } catch(e){ toast('Erro: '+e.message); }
 }
 async function setStatus(key,op){ try{ await api(op,{key}); carregar(); }catch(e){ toast('Erro: '+e.message);} }
-async function rmMachine(key,machine_id){ if(!confirm('Liberar esta máquina da licença?'))return; try{ await api('removeMachine',{key,machine_id}); carregar(); }catch(e){ toast('Erro: '+e.message);} }
+async function rmMachine(key,machine_id){ if(!confirm('Bloquear esta maquina nesta licenca?'))return; try{ await api('removeMachine',{key,machine_id}); carregar(); }catch(e){ toast('Erro: '+e.message);} }
+async function unblockMachine(key,machine_id){ if(!confirm('Desbloquear esta maquina nesta licenca?'))return; try{ await api('unblockMachine',{key,machine_id}); carregar(); }catch(e){ toast('Erro: '+e.message);} }
 async function apagar(key){ if(!confirm('Excluir esta licença? O cliente perde o acesso.'))return; try{ await api('delete',{key}); carregar(); }catch(e){ toast('Erro: '+e.message);} }
 async function editar(key){
   const it = DATA.find(x=>x.key===key); if(!it) return;
@@ -187,8 +378,12 @@ async function editar(key){
   try{ await api('update', extra); toast('Atualizada.'); carregar(); }catch(e){ toast('Erro: '+e.message);} }
 function copiar(txt){ navigator.clipboard?.writeText(txt); toast('Chave copiada: '+txt); }
 
-// auto-login se ja tem token salvo
-if (TOKEN) { document.getElementById('token').value = TOKEN; entrar(); }
+// auto-login se ja tem credenciais salvas nesta sessao
+if (ADMIN_USER && ADMIN_PASS) {
+  document.getElementById('user').value = ADMIN_USER;
+  document.getElementById('pass').value = ADMIN_PASS;
+  entrar();
+}
 </script>
 </body>
 </html>

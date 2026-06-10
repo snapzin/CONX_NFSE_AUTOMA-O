@@ -39,6 +39,7 @@
     "artifactName": "NFSe-Automacao-Setup-${version}.${ext}",
     "files": [
       "main.js",
+      "license-client.js",
       "preload.js",
       "splash.html",
       "assets/**/*",
@@ -91,7 +92,8 @@
       {
         "provider": "github",
         "owner": "snapzin",
-        "repo": "CONX_NFSE_AUTOMA-O"
+        "repo": "CONX_NFSE_AUTOMA-O",
+        "releaseType": "release"
       }
     ]
   }

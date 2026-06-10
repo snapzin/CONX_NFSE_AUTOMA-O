@@ -1,7 +1,18 @@
 from __future__ import annotations
 
+import os
 import sys
 from pathlib import Path
+
+DEFAULT_LICENSE_SERVER_URL = "https://license-server-sigma-topaz.vercel.app"
+
+
+def license_server_url() -> str:
+    return os.environ.get("NFSE_LICENSE_SERVER_URL", DEFAULT_LICENSE_SERVER_URL).strip().rstrip("/")
+
+
+def license_admin_url() -> str:
+    return os.environ.get("NFSE_LICENSE_ADMIN_URL", f"{license_server_url()}/api/admin").strip()
 
 
 def project_root() -> Path:
@@ -63,7 +74,7 @@ def default_values() -> dict[str, object]:
         # padrao de proposito: so a maquina do admin (CONX) preenche; nos
         # clientes fica vazio -> o painel de maquinas nao aparece e o token nao
         # e distribuido.
-        "LICENSE_ADMIN_URL": "https://license-server-sigma-topaz.vercel.app/api/admin",
+        "LICENSE_ADMIN_URL": license_admin_url(),
         "LICENSE_ADMIN_TOKEN": "",
 
         # Dominio Web e e-mail sao opcionais.
@@ -163,6 +174,11 @@ def default_config_text() -> str:
         "# PLANILHA",
         f"XLSX_COLUNA_CNPJ = {_literal(values['XLSX_COLUNA_CNPJ'])}",
         f"XLSX_COLUNA_NOME = {_literal(values['XLSX_COLUNA_NOME'])}",
+        "",
+        "# PAINEL ADMIN DE LICENCAS (Modo Desenvolvedor)",
+        "# Deixe o TOKEN vazio nos clientes. Preencha so na maquina do admin.",
+        f"LICENSE_ADMIN_URL = {_literal(values['LICENSE_ADMIN_URL'])}",
+        f"LICENSE_ADMIN_TOKEN = {_literal(values['LICENSE_ADMIN_TOKEN'])}",
         "",
         "# DOMINIO WEB (opcional)",
         f"DOMINIO_WEB_URL = {_literal(values['DOMINIO_WEB_URL'])}",

@@ -25,6 +25,28 @@ const api = {
 
     return response.json();
   },
+  async licenseStatus() {
+    if (window.electronAPI?.licenseStatus) {
+      return window.electronAPI.licenseStatus();
+    }
+    return {
+      licensed: false,
+      message: 'Validacao de licenca disponivel apenas no app conectado a Vercel.',
+      key_hint: null,
+    };
+  },
+  async licenseActivate(key) {
+    if (window.electronAPI?.licenseActivate) {
+      return window.electronAPI.licenseActivate(key);
+    }
+    throw new Error('Ativacao local desativada. Use o app Electron conectado a Vercel.');
+  },
+  async licenseDeactivate() {
+    if (window.electronAPI?.licenseDeactivate) {
+      return window.electronAPI.licenseDeactivate();
+    }
+    return { ok: true };
+  },
   get(endpoint) {
     return this.call('GET', endpoint);
   },
@@ -137,6 +159,7 @@ function App() {
   const { toasts, push } = useToasts();
 
   useEffect(() => {
+    if (license.licensed !== true) return;
     // Mostra o onboarding apenas se os caminhos NAO foram resolvidos
     // automaticamente (pasta de certificados inexistente ou sem .pfx).
     // As sugestoes auto-detectadas pre-preenchem o wizard.
@@ -146,18 +169,30 @@ function App() {
         setOnboarding(true);
       }
     }).catch(() => {});
-  }, []);
+  }, [license.licensed]);
 
   const refreshLicense = useCallback(async () => {
     try {
-      const result = await api.get('/license/status');
+      const result = await api.licenseStatus();
       setLicense(result);
+      return result;
     } catch {
-      setLicense({ licensed: false, message: 'Servidor indisponível.', key_hint: null });
+      const fallback = { licensed: false, message: 'Servidor indisponível.', key_hint: null };
+      setLicense(fallback);
+      return fallback;
     }
   }, []);
 
-  useEffect(() => { refreshLicense(); }, [refreshLicense]);
+  useEffect(() => {
+    refreshLicense();
+    const timer = window.setInterval(refreshLicense, 5 * 60 * 1000);
+    const onFocus = () => refreshLicense();
+    window.addEventListener('focus', onFocus);
+    return () => {
+      window.clearInterval(timer);
+      window.removeEventListener('focus', onFocus);
+    };
+  }, [refreshLicense]);
 
   useEffect(() => {
     document.documentElement.dataset.theme = 'dark';
@@ -182,6 +217,48 @@ function App() {
       push('Senha incorreta.', 'error');
     }
   };
+
+  if (license.licensed !== true) {
+    return (
+      <div className="license-gate">
+        <div className="license-gate-panel">
+          <div className="license-gate-icon"><Icon.Lock /></div>
+          <h1>Licenca necessaria</h1>
+          <p>
+            {license.licensed === null
+              ? 'Verificando autorizacao com o servidor...'
+              : (license.message || 'Ative uma licenca valida para usar o sistema.')}
+          </p>
+          <div className="license-gate-actions">
+            <button
+              className="btn-primary"
+              type="button"
+              onClick={() => setShowActivateModal(true)}
+              disabled={license.licensed === null}
+            >
+              Ativar licenca
+            </button>
+            <button className="btn-secondary" type="button" onClick={refreshLicense}>
+              Revalidar
+            </button>
+          </div>
+        </div>
+        <ToastViewport toasts={toasts} />
+        {showActivateModal && (
+          <ActivationModal
+            api={api}
+            onSuccess={() => {
+              setShowActivateModal(false);
+              refreshLicense();
+              push('Licenca ativada com sucesso!', 'success');
+            }}
+            onCancel={() => setShowActivateModal(false)}
+            toast={push}
+          />
+        )}
+      </div>
+    );
+  }
 
   if (onboarding) {
     return (
@@ -228,6 +305,7 @@ function App() {
                   onLogsUpdate={setSharedJobLogs}
                   onJobStatusUpdate={setSharedJobStatus}
                   license={license}
+                  onLicenseRefresh={refreshLicense}
                   onActivate={() => setShowActivateModal(true)}
                   jobId={execJobId}
                   setJobId={setExecJobId}
@@ -490,7 +568,7 @@ function ActivationModal({ api, onSuccess, onCancel, toast }) {
     if (!key.trim()) return;
     setLoading(true);
     try {
-      await api.post('/license/activate', { key: key.replace(/-/g, '') });
+      await api.licenseActivate(key.replace(/-/g, ''));
       onSuccess();
     } catch (err) {
       const msg = err?.message?.replace(/^HTTP \d+: /, '') || 'Chave inválida.';
@@ -628,7 +706,7 @@ function parseProgress(logs) {
   return { total, clients };
 }
 
-function ExecutarPage({ api, toast, setStatus, onLogsUpdate, onJobStatusUpdate, license, onActivate, jobId, setJobId, busy, setBusy }) {
+function ExecutarPage({ api, toast, setStatus, onLogsUpdate, onJobStatusUpdate, license, onLicenseRefresh, onActivate, jobId, setJobId, busy, setBusy }) {
   const [usePrevMonth, setUsePrevMonth] = useState(true);
   const [tipoNota, setTipoNota] = useState('ambas'); // 'emitidas' | 'recebidas' | 'ambas'
   const [jobStatus, setJobStatus] = useState(busy ? 'Executando' : 'Pronto');
@@ -706,6 +784,13 @@ function ExecutarPage({ api, toast, setStatus, onLogsUpdate, onJobStatusUpdate, 
       }
     }
     try {
+      const currentLicense = await onLicenseRefresh?.();
+      if ((currentLicense ?? license)?.licensed !== true) {
+        toast('Licenca necessaria para executar.', 'warning');
+        onActivate?.();
+        return;
+      }
+
       setBusy(true);
       setLogs([]);
       setJobStatus('Executando');
@@ -1052,7 +1137,7 @@ function ClientesPage({ api, toast }) {
     try {
       const res = await api.get('/clientes');
       setClientes((res?.clientes || []).map((c) => ({ ...c })));
-      setPathInfo(res?.path || '');
+      setPathInfo(res?.location || res?.path || '');
     } catch (err) {
       toast(`Falha ao carregar clientes: ${err?.message || err}`, 'error');
     } finally {
@@ -1141,7 +1226,7 @@ function ClientesPage({ api, toast }) {
       </div>
 
       {pathInfo && (
-        <div className="clientes-path">Arquivo: {pathInfo}</div>
+        <div className="clientes-path">Origem: {pathInfo}</div>
       )}
 
       <div className="clientes-table-wrap">
@@ -1227,7 +1312,7 @@ function DeveloperPage({ api, toast, logs, jobStatus }) {
   }, [api]);
 
   const fetchLicense = useCallback(async () => {
-    try { setLicenseInfo(await api.get('/license/status')); } catch { setLicenseInfo(null); }
+    try { setLicenseInfo(await api.licenseStatus()); } catch { setLicenseInfo(null); }
   }, [api]);
 
   const fetchMachines = useCallback(async () => {
@@ -1240,7 +1325,7 @@ function DeveloperPage({ api, toast, logs, jobStatus }) {
     if (!window.confirm('Desativar a licença? O sistema ficará bloqueado até uma nova ativação.')) return;
     setDeactivating(true);
     try {
-      await api.post('/license/deactivate');
+      await api.licenseDeactivate();
       toast('Licença desativada.', 'warning');
       fetchLicense();
     } catch {
@@ -1352,7 +1437,7 @@ function DeveloperPage({ api, toast, logs, jobStatus }) {
               </div>
             )}
 
-            <div className="dev-sub" style={{ marginTop: 16 }}>Máquinas com chave ativa ({maquinas.length})</div>
+            <div className="dev-sub" style={{ marginTop: 16 }}>Máquinas registradas ({maquinas.length})</div>
             {maquinas.length === 0 ? (
               <p className="log-muted">Nenhuma máquina ativou uma chave ainda.</p>
             ) : (
