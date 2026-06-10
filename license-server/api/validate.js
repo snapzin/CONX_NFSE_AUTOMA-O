@@ -3,28 +3,27 @@
 //
 // Env no Vercel:
 //   CLIENT_SECRET  = mesmo valor de _CLIENT_SECRET em api/license.py (opcional)
-//   VALID_KEYS     = chaves legadas (compat com versao antiga; opcional)
+//   VALID_KEYS / ALLOW_LEGACY_KEYS=1 = chaves legadas (opcional e desativado por padrao)
 //   UPSTASH_REDIS_REST_URL / UPSTASH_REDIS_REST_TOKEN = banco (Upstash)
+import crypto from 'crypto';
 import {
-  getRecord, saveRecord, legacyKeys, normalizeKey, setCors,
+  getRecord, saveRecord, legacyKeys, normalizeKey, setCors, setSecurityHeaders,
+  rateLimit, clientIp,
 } from './_lib.js';
 
 const CONTACT = 'zayonantunes@gmail.com';
 
-// Rate limiting em memoria (por instancia Lambda)
-const _hits = new Map();
-const MAX_REQ_PER_IP = 30;
-const WINDOW_MS = 60_000;
-function _isRateLimited(ip) {
-  const now = Date.now();
-  const e = _hits.get(ip) || { count: 0, start: now };
-  if (now - e.start > WINDOW_MS) { _hits.set(ip, { count: 1, start: now }); return false; }
-  e.count++; _hits.set(ip, e);
-  return e.count > MAX_REQ_PER_IP;
+function isMachineBlocked(machine) {
+  return machine?.status === 'blocked';
+}
+
+function activeMachineCount(machines) {
+  return Object.values(machines || {}).filter((m) => !isMachineBlocked(m)).length;
 }
 
 export default async function handler(req, res) {
-  setCors(res);
+  setSecurityHeaders(res);
+  setCors(req, res);
   if (req.method === 'OPTIONS') return res.status(200).end();
   if (req.method !== 'POST') {
     return res.status(405).json({ valid: false, message: 'Metodo nao permitido' });
@@ -38,8 +37,8 @@ export default async function handler(req, res) {
     }
   }
 
-  const ip = req.headers['x-forwarded-for']?.split(',')[0]?.trim() || 'unknown';
-  if (_isRateLimited(ip)) {
+  const ip = clientIp(req);
+  if (await rateLimit(`validate:ip:${ip}`, 80, 60)) {
     return res.status(429).json({ valid: false, message: 'Muitas requisicoes. Tente novamente.' });
   }
 
@@ -47,7 +46,14 @@ export default async function handler(req, res) {
   if (!key) return res.status(400).json({ valid: false, message: 'Chave nao informada' });
 
   const k = normalizeKey(key);
-  const mid = String(machine_id || 'unknown');
+  const keyHash = crypto.createHash('sha256').update(k).digest('hex').slice(0, 16);
+  if (await rateLimit(`validate:key:${keyHash}`, 20, 60)) {
+    return res.status(429).json({ valid: false, message: 'Muitas tentativas para esta chave. Tente novamente.' });
+  }
+  const mid = String(machine_id || '').trim().toLowerCase();
+  if (!/^[a-f0-9]{32}$/.test(mid)) {
+    return res.status(400).json({ valid: false, message: 'Identificador de maquina invalido' });
+  }
   const inval = (msg) => res.status(200).json({ valid: false, message: msg });
 
   try {
@@ -73,10 +79,15 @@ export default async function handler(req, res) {
     const max = Number(rec.maxMachines || 1);
     const nowIso = new Date().toISOString();
 
+    if (isMachineBlocked(machines[mid])) {
+      return inval(`Esta maquina foi bloqueada para esta licenca. Contato: ${CONTACT}`);
+    }
+
     if (machines[mid]) {
       machines[mid].lastSeen = nowIso;
-    } else if (Object.keys(machines).length < max) {
-      machines[mid] = { firstSeen: nowIso, lastSeen: nowIso };
+      machines[mid].status = machines[mid].status || 'active';
+    } else if (activeMachineCount(machines) < max) {
+      machines[mid] = { firstSeen: nowIso, lastSeen: nowIso, status: 'active' };
     } else {
       return inval(`Limite de ${max} maquina(s) atingido para esta licenca. Contato: ${CONTACT}`);
     }

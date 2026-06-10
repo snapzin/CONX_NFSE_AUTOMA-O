@@ -2,6 +2,21 @@
   "version": 2,
   "functions": {
     "api/validate.js": { "maxDuration": 5, "memory": 128 },
-    "api/admin.js": { "maxDuration": 10, "memory": 128 }
-  }
+    "api/admin.js": { "maxDuration": 10, "memory": 128 },
+    "api/clientes.js": { "maxDuration": 10, "memory": 128 }
+  },
+  "headers": [
+    {
+      "source": "/(.*)",
+      "headers": [
+        { "key": "X-Content-Type-Options", "value": "nosniff" },
+        { "key": "X-Frame-Options", "value": "DENY" },
+        { "key": "Referrer-Policy", "value": "no-referrer" },
+        { "key": "Strict-Transport-Security", "value": "max-age=31536000; includeSubDomains; preload" },
+        { "key": "Access-Control-Allow-Origin", "value": "https://license-server-sigma-topaz.vercel.app" },
+        { "key": "Permissions-Policy", "value": "camera=(), microphone=(), geolocation=(), payment=()" },
+        { "key": "Content-Security-Policy", "value": "default-src 'self'; connect-src 'self'; object-src 'none'; base-uri 'none'; frame-ancestors 'none'; form-action 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'" }
+      ]
+    }
+  ]
 }

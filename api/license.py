@@ -2,7 +2,7 @@
 api/license.py — Validação de licença.
 
 Dois tipos de chave:
-  - Mestra (CONX): validada localmente por hash, funciona sempre, sem servidor.
+  - Mestra (CONX): validada localmente por hash apenas com NFSE_ALLOW_MASTER_LICENSE=1.
   - Cliente: validada contra o servidor Vercel a cada execução.
 """
 
@@ -10,13 +10,25 @@ from __future__ import annotations
 
 import hashlib
 import hmac
+import os
 import platform
 import time
 from pathlib import Path
 
 import requests
 
-VALIDATION_URL = "https://license-server-sigma-topaz.vercel.app/api/validate"
+DEFAULT_LICENSE_SERVER_URL = "https://license-server-sigma-topaz.vercel.app"
+
+
+def _clean_base_url(url: str | None) -> str:
+    return (url or DEFAULT_LICENSE_SERVER_URL).strip().rstrip("/")
+
+
+LICENSE_SERVER_URL = _clean_base_url(os.environ.get("NFSE_LICENSE_SERVER_URL"))
+VALIDATION_URL = (
+    os.environ.get("NFSE_LICENSE_VALIDATE_URL", "").strip()
+    or f"{LICENSE_SERVER_URL}/api/validate"
+)
 LICENSE_FILE   = Path(__file__).parent.parent / "license.key"
 GRACE_FILE     = Path(__file__).parent.parent / "license.grace"
 TIMEOUT_S      = 8
@@ -27,7 +39,10 @@ _MASTER_HASH = "cc1b5ad057cea06bfea3fcae5953436319d162377ce27747645dc0bb05594c2b
 
 # Segredo compartilhado com o servidor Vercel (env var CLIENT_SECRET).
 # Impede que requests não autorizados cheguem ao endpoint de validação.
-_CLIENT_SECRET = "nfse-v1-a7f3c9b2d4e6f8a1b3c5d7e9f0a2b4c6"
+_CLIENT_SECRET = (
+    os.environ.get("NFSE_CLIENT_SECRET", "").strip()
+    or "nfse-v1-a7f3c9b2d4e6f8a1b3c5d7e9f0a2b4c6"
+)
 
 
 # ── Chave mestra ──────────────────────────────────────────────────────────────
@@ -36,6 +51,14 @@ def _is_master_key(key: str) -> bool:
     normalized = key.upper().replace("-", "").strip()
     candidate  = hashlib.sha256(normalized.encode()).hexdigest()
     return hmac.compare_digest(candidate, _MASTER_HASH)
+
+
+def _master_key_enabled() -> bool:
+    return False
+
+
+def _offline_grace_enabled() -> bool:
+    return os.environ.get("NFSE_ALLOW_OFFLINE_GRACE", "").strip() == "1"
 
 
 # ── Grace period (offline) ────────────────────────────────────────────────────
@@ -60,7 +83,7 @@ def _within_grace() -> bool:
 
 def _grace_or(offline_msg: str) -> tuple[bool, str]:
     """Retorna True com mensagem de modo offline, ou False com offline_msg."""
-    if _within_grace():
+    if _offline_grace_enabled() and _within_grace():
         return True, f"Modo offline — licença validada nos últimos {GRACE_DAYS} dias."
     return False, offline_msg
 
@@ -101,8 +124,10 @@ def validate_key(key: str) -> tuple[bool, str]:
 
     normalized = key.upper().replace("-", "").strip()
 
-    if _is_master_key(normalized):
+    if _is_master_key(normalized) and _master_key_enabled():
         return True, "Licença CONX ativa."
+    if _is_master_key(normalized):
+        return False, "Chave mestra local desativada nesta instalacao. Use uma licenca do servidor."
 
     try:
         resp  = requests.post(
@@ -124,15 +149,11 @@ def validate_key(key: str) -> tuple[bool, str]:
         return False, f"Erro ao verificar licença: {exc}"
 
 
-def check_license() -> tuple[bool, str]:
-    key = load_key()
+def check_license(key: str | None = None) -> tuple[bool, str]:
     if not key:
-        return False, "Nenhuma licença ativada. Insira sua chave na aba Executar."
+        return False, "Licenca deve ser validada diretamente no servidor da Vercel pelo aplicativo."
     return validate_key(key)
 
 
 def activate(key: str) -> tuple[bool, str]:
-    valid, message = validate_key(key)
-    if valid:
-        save_key(key)
-    return valid, message
+    return validate_key(key)

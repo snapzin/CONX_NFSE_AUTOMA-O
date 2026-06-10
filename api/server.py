@@ -18,6 +18,7 @@ from typing import Optional
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
+import requests
 import uvicorn
 
 # =============================================================================
@@ -107,13 +108,15 @@ _lic = _load_license_module()
 if _lic:
     license_activate   = _lic.activate
     check_license      = _lic.check_license
+    validate_license_key = _lic.validate_key
     load_key           = _lic.load_key
     license_deactivate = _lic.deactivate
     logger.info("Módulo de licença carregado.")
 else:
     logger.error("LICENÇA: módulo não encontrado — execução BLOQUEADA.")
     def license_activate(key): return False, "Módulo de licença não encontrado."
-    def check_license(): return False, "Módulo de licença não encontrado."
+    def check_license(key=None): return False, "Módulo de licença não encontrado."
+    def validate_license_key(key): return False, "Módulo de licença não encontrado."
     def load_key(): return None
     def license_deactivate(): pass
 
@@ -193,12 +196,21 @@ app.add_middleware(
     CORSMiddleware,
     allow_origins=["http://127.0.0.1:5173", "http://localhost:5173", "app://"],
     allow_methods=["GET", "POST"],
-    allow_headers=["Content-Type", "x-api-token"],
+    allow_headers=["Content-Type", "x-api-token", "x-license-key"],
 )
 
 # Token gerado pelo Electron e passado via env var NFSE_API_TOKEN.
 # Se não definido (modo dev sem Electron), a auth é desativada.
 _API_TOKEN = os.environ.get("NFSE_API_TOKEN", "")
+
+def _is_license_exempt_path(method: str, path: str) -> bool:
+    if path == "/health":
+        return True
+    if method == "GET" and re.fullmatch(r"/executar/[^/]+/status", path):
+        return True
+    if method == "POST" and re.fullmatch(r"/executar/[^/]+/cancelar", path):
+        return True
+    return False
 
 @app.middleware("http")
 async def _require_token(request: Request, call_next):
@@ -208,6 +220,15 @@ async def _require_token(request: Request, call_next):
         token = request.headers.get("x-api-token", "")
         if not token or not hmac.compare_digest(token.encode(), _API_TOKEN.encode()):
             return JSONResponse(status_code=401, content={"error": "Não autorizado"})
+
+    if request.method != "OPTIONS" and not _is_license_exempt_path(request.method, request.url.path):
+        license_key = request.headers.get("x-license-key", "")
+        licensed, message = validate_license_key(license_key)
+        if not licensed:
+            return JSONResponse(
+                status_code=402,
+                content={"licensed": False, "detail": message, "message": message},
+            )
     return await call_next(request)
 
 # =============================================================================
@@ -431,7 +452,10 @@ async def admin_maquinas():
     - 'itens': licencas com suas maquinas; 'maquinas': lista achatada (1 por
       maquina ativa) para exibir direto no Modo Dev.
     """
-    url = str(getattr(config, "LICENSE_ADMIN_URL", "") or "").strip()
+    url = (
+        os.environ.get("NFSE_LICENSE_ADMIN_URL", "").strip()
+        or str(getattr(config, "LICENSE_ADMIN_URL", "") or "").strip()
+    )
     token = str(getattr(config, "LICENSE_ADMIN_TOKEN", "") or "").strip()
     base = url.split("/api/")[0] if "/api/" in url else url
     out = {"serverUrl": base, "online": False, "configurado": bool(token),
@@ -457,10 +481,13 @@ async def admin_maquinas():
             # Achata as maquinas (1 entrada por maquina com chave ativa)
             for it in out["itens"]:
                 for mid, m in (it.get("machines") or {}).items():
+                    machine_status = (m or {}).get("status") or it.get("status", "active")
+                    if it.get("status") == "blocked":
+                        machine_status = "blocked"
                     out["maquinas"].append({
                         "cliente": it.get("clientName") or it.get("keyFmt"),
                         "machineId": mid,
-                        "status": it.get("status", "active"),
+                        "status": machine_status,
                         "expiresAt": it.get("expiresAt"),
                         "lastSeen": (m or {}).get("lastSeen"),
                         "firstSeen": (m or {}).get("firstSeen"),
@@ -541,96 +568,238 @@ def _resolver_xlsx_path() -> Path:
     return config_dir / raw
 
 
-@app.get("/clientes")
-async def listar_clientes():
-    """Le a planilha de clientes (CNPJ/CPF + Nome)."""
-    try:
-        from openpyxl import load_workbook
-        xlsx_path = _resolver_xlsx_path()
+def _normalizar_clientes(clientes) -> list[dict]:
+    out = []
+    for c in clientes or []:
+        if not isinstance(c, dict):
+            continue
+        doc = re.sub(r"\D", "", str(c.get("documento", "")).strip())[:32]
+        nome = str(c.get("nome", "")).strip()[:200]
+        if doc or nome:
+            out.append({"documento": doc, "nome": nome})
+    return out
 
-        if not xlsx_path.exists():
-            return {"clientes": [], "path": str(xlsx_path)}
 
-        wb = load_workbook(xlsx_path, read_only=True, data_only=True)
-        ws = wb.active
-        rows = list(ws.iter_rows(min_row=1, values_only=True))
-        wb.close()
+def _ler_clientes_local() -> dict:
+    from openpyxl import load_workbook
 
-        if not rows:
-            return {"clientes": [], "path": str(xlsx_path)}
+    xlsx_path = _resolver_xlsx_path()
+    if not xlsx_path.exists():
+        return {"clientes": [], "path": str(xlsx_path), "source": "local"}
 
-        # Detecta colunas pelo cabecalho
-        header = [str(c or "").strip().lower() for c in rows[0]]
-        idx_doc = next((i for i, h in enumerate(header)
-                        if "cnpj" in h or "cpf" in h or "doc" in h), 0)
-        idx_nome = next((i for i, h in enumerate(header)
-                         if "nome" in h or "razao" in h or "cliente" in h), 1)
+    wb = load_workbook(xlsx_path, read_only=True, data_only=True)
+    ws = wb.active
+    rows = list(ws.iter_rows(min_row=1, values_only=True))
+    wb.close()
 
-        clientes = []
-        for row in rows[1:]:
-            if not row or all(c is None or str(c).strip() == "" for c in row):
-                continue
-            doc = str(row[idx_doc] or "").strip() if idx_doc < len(row) else ""
-            nome = str(row[idx_nome] or "").strip() if idx_nome < len(row) else ""
-            if not doc and not nome:
-                continue
+    if not rows:
+        return {"clientes": [], "path": str(xlsx_path), "source": "local"}
+
+    header = [str(c or "").strip().lower() for c in rows[0]]
+    idx_doc = next((i for i, h in enumerate(header)
+                    if "cnpj" in h or "cpf" in h or "doc" in h), 0)
+    idx_nome = next((i for i, h in enumerate(header)
+                     if "nome" in h or "razao" in h or "cliente" in h), 1)
+
+    clientes = []
+    for row in rows[1:]:
+        if not row or all(c is None or str(c).strip() == "" for c in row):
+            continue
+        doc = str(row[idx_doc] or "").strip() if idx_doc < len(row) else ""
+        nome = str(row[idx_nome] or "").strip() if idx_nome < len(row) else ""
+        if doc or nome:
             clientes.append({"documento": doc, "nome": nome})
 
-        return {"clientes": clientes, "path": str(xlsx_path)}
+    return {"clientes": _normalizar_clientes(clientes), "path": str(xlsx_path), "source": "local"}
+
+
+def _salvar_clientes_local(clientes: list[dict]) -> dict:
+    from openpyxl import Workbook
+
+    xlsx_path = _resolver_xlsx_path()
+    xlsx_path.parent.mkdir(parents=True, exist_ok=True)
+
+    wb = Workbook()
+    ws = wb.active
+    ws.title = "Clientes"
+    ws.append(["CNPJ", "NOME"])
+    for c in clientes:
+        ws.append([c.get("documento", ""), c.get("nome", "")])
+    wb.save(xlsx_path)
+    wb.close()
+
+    return {"ok": True, "salvos": len(clientes), "path": str(xlsx_path), "source": "local"}
+
+
+def _clientes_remotos_ativos() -> bool:
+    value = os.environ.get("NFSE_CLIENTES_REMOTE", "1").strip().lower()
+    return value not in {"0", "false", "no", "off"}
+
+
+def _license_server_url() -> str:
+    url = (
+        os.environ.get("NFSE_LICENSE_SERVER_URL", "").strip()
+        or str(getattr(_lic, "LICENSE_SERVER_URL", "") or "").strip()
+        or "https://license-server-sigma-topaz.vercel.app"
+    )
+    return url.rstrip("/")
+
+
+def _clientes_remote_url() -> str:
+    return (
+        os.environ.get("NFSE_CLIENTES_URL", "").strip()
+        or f"{_license_server_url()}/api/clientes"
+    )
+
+
+def _clientes_machine_id() -> str:
+    if _lic and hasattr(_lic, "get_machine_id"):
+        return _lic.get_machine_id()
+    raise RuntimeError("Identificador desta maquina indisponivel.")
+
+
+def _clientes_client_secret() -> str:
+    return (
+        os.environ.get("NFSE_CLIENT_SECRET", "").strip()
+        or str(getattr(_lic, "_CLIENT_SECRET", "") or "").strip()
+    )
+
+
+def _clientes_remote_call(op: str, license_key: str, clientes: list[dict] | None = None) -> dict:
+    if not license_key:
+        raise RuntimeError("Licenca nao informada.")
+
+    payload = {
+        "op": op,
+        "key": license_key,
+        "machine_id": _clientes_machine_id(),
+    }
+    if clientes is not None:
+        payload["clientes"] = clientes
+
+    headers = {"Content-Type": "application/json"}
+    client_secret = _clientes_client_secret()
+    if client_secret:
+        headers["x-client-secret"] = client_secret
+
+    resp = requests.post(
+        _clientes_remote_url(),
+        json=payload,
+        headers=headers,
+        timeout=10,
+    )
+    try:
+        data = resp.json()
+    except Exception:
+        data = {}
+    if not resp.ok or data.get("ok") is False:
+        msg = data.get("message") or data.get("detail") or resp.text or f"HTTP {resp.status_code}"
+        raise RuntimeError(str(msg))
+    return data
+
+
+@app.get("/clientes")
+async def listar_clientes(request: Request):
+    """Le clientes por maquina no servidor; usa XLSX local como fallback/migracao."""
+    try:
+        if _clientes_remotos_ativos():
+            try:
+                data = _clientes_remote_call("get", request.headers.get("x-license-key", ""))
+                clientes = _normalizar_clientes(data.get("clientes") or [])
+                if clientes or data.get("updatedAt"):
+                    return {
+                        "clientes": clientes,
+                        "path": data.get("path") or "",
+                        "location": data.get("location") or "Servidor de licencas",
+                        "source": "server",
+                        "machineId": data.get("machine_id") or _clientes_machine_id(),
+                        "updatedAt": data.get("updatedAt"),
+                    }
+
+                local = _ler_clientes_local()
+                if local.get("clientes"):
+                    local["location"] = (
+                        f"Arquivo local: {local.get('path')} "
+                        "(clique em Salvar para enviar ao servidor desta maquina)"
+                    )
+                    local["sync_hint"] = "Clique em Salvar para enviar estes clientes ao servidor desta maquina."
+                    return local
+
+                return {
+                    "clientes": [],
+                    "path": data.get("path") or "",
+                    "location": data.get("location") or "Servidor de licencas",
+                    "source": "server",
+                    "machineId": data.get("machine_id") or _clientes_machine_id(),
+                    "updatedAt": data.get("updatedAt"),
+                }
+            except Exception as remote_err:
+                logger.warning("Falha ao carregar clientes do servidor: %s", remote_err)
+
+        local = _ler_clientes_local()
+        if not local.get("location"):
+            local["location"] = f"Arquivo local: {local.get('path')}"
+        return local
     except Exception as e:
         logger.exception("Falha ao listar clientes")
         raise HTTPException(status_code=500, detail=str(e))
 
 
 @app.post("/clientes")
-async def salvar_clientes(payload: dict):
-    """Grava a lista de clientes na planilha (substitui conteudo)."""
+async def salvar_clientes(request: Request, payload: dict):
+    """Grava clientes por maquina no servidor; local so se NFSE_CLIENTES_REMOTE=0."""
     try:
-        from openpyxl import Workbook
-        clientes = payload.get("clientes") or []
-        xlsx_path = _resolver_xlsx_path()
-        xlsx_path.parent.mkdir(parents=True, exist_ok=True)
+        clientes = _normalizar_clientes(payload.get("clientes") or [])
 
-        wb = Workbook()
-        ws = wb.active
-        ws.title = "Clientes"
-        # Cabecalho
-        ws.append(["CNPJ", "NOME"])
-        for c in clientes:
-            doc = str(c.get("documento", "")).strip()
-            nome = str(c.get("nome", "")).strip()
-            if doc or nome:
-                ws.append([doc, nome])
-        wb.save(xlsx_path)
-        wb.close()
+        if _clientes_remotos_ativos():
+            try:
+                data = _clientes_remote_call(
+                    "save",
+                    request.headers.get("x-license-key", ""),
+                    clientes,
+                )
+                return {
+                    "ok": True,
+                    "salvos": int(data.get("salvos", len(clientes))),
+                    "path": data.get("path") or "",
+                    "location": data.get("location") or "Servidor de licencas",
+                    "source": "server",
+                    "machineId": data.get("machine_id") or _clientes_machine_id(),
+                    "updatedAt": data.get("updatedAt"),
+                }
+            except Exception as remote_err:
+                logger.exception("Falha ao salvar clientes no servidor")
+                raise HTTPException(
+                    status_code=502,
+                    detail=f"Falha ao salvar clientes no servidor: {remote_err}",
+                )
 
-        return {"ok": True, "salvos": len(clientes), "path": str(xlsx_path)}
+        return _salvar_clientes_local(clientes)
     except Exception as e:
+        if isinstance(e, HTTPException):
+            raise
         logger.exception("Falha ao salvar clientes")
         raise HTTPException(status_code=500, detail=str(e))
 
 
 @app.get("/license/status")
 async def license_status():
-    """Retorna estado da licença atual."""
-    key = load_key()
-    if not key:
-        return {"licensed": False, "message": "Nenhuma licença ativada.", "key_hint": None}
-    valid, message = check_license()
-    hint = (key[:8] + "..." + key[-4:]) if len(key) > 12 else key
-    return {"licensed": valid, "message": message, "key_hint": hint}
+    """Endpoint legado: licença agora é validada no Electron contra a Vercel."""
+    return {
+        "licensed": False,
+        "message": "Licenca local desativada. O aplicativo valida diretamente no servidor da Vercel.",
+        "key_hint": None,
+        "remoteOnly": True,
+    }
 
 
 @app.post("/license/activate")
 async def license_activate_endpoint(body: dict):
-    """Ativa uma chave de licença."""
-    key = str(body.get("key", "")).strip()
-    if not key:
-        raise HTTPException(status_code=400, detail="Chave não informada.")
-    valid, message = license_activate(key)
-    if not valid:
-        raise HTTPException(status_code=402, detail=message)
-    return {"ok": True, "message": message}
+    """Endpoint legado: ativação local foi desativada."""
+    raise HTTPException(
+        status_code=410,
+        detail="Ativacao local desativada. Use a validacao direta do aplicativo com a Vercel.",
+    )
 
 
 @app.post("/license/deactivate")
@@ -644,11 +813,6 @@ async def license_deactivate_endpoint():
 async def start_execution(body: dict):
     """Inicia execução assíncrona. Retorna { jobId }."""
     _prune_jobs()
-
-    # ── Verificação de licença ────────────────────────────────────────────────
-    licensed, lic_msg = check_license()
-    if not licensed:
-        raise HTTPException(status_code=402, detail=lic_msg)
 
     try:
         data_inicio = body.get("dataInicio")
