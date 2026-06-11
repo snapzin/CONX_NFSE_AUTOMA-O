@@ -1,4 +1,4 @@
-"""
+﻿"""
 api/license.py — Validação de licença.
 
 Dois tipos de chave:

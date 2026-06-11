@@ -1,4 +1,4 @@
-// API de gerenciamento de licencas.
+﻿// API de gerenciamento de licencas.
 // Preferencial: POST {op, ...} + headers x-admin-user / x-admin-pass.
 // Legado: header x-admin-token == ADMIN_TOKEN.
 //

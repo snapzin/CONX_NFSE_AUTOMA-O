@@ -1,4 +1,4 @@
-// Biblioteca compartilhada do servidor de licencas.
+﻿// Biblioteca compartilhada do servidor de licencas.
 // Banco: Upstash Redis (Vercel Marketplace -> Upstash, plano gratuito).
 // Env necessarias: UPSTASH_REDIS_REST_URL, UPSTASH_REDIS_REST_TOKEN
 import { Redis } from '@upstash/redis';
