@@ -1,4 +1,4 @@
-// Valida chaves de licenca NFSe Automacao.
+﻿// Valida chaves de licenca NFSe Automacao.
 // Chamado pelo app: POST {key, machine_id} + header x-client-secret -> {valid, message}
 //
 // Env no Vercel:
