@@ -79,7 +79,7 @@ exe = EXE(
     strip=False,
     upx=False,
     console=True,          # mostra console para log (main.js captura stdout)
-    version=None,
+    version=str(SPEC_DIR / "version_info.txt"),  # metadados (reduz falso-positivo de AV)
 )
 
 coll = COLLECT(

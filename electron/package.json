@@ -76,7 +76,12 @@
         }
       ],
       "requestedExecutionLevel": "requireAdministrator",
-      "icon": "assets/icon.ico"
+      "icon": "assets/icon.ico",
+      "publisherName": "CONX Contabilidade",
+      "signAndEditExecutable": true,
+      "signingHashAlgorithms": [
+        "sha256"
+      ]
     },
     "nsis": {
       "oneClick": false,
