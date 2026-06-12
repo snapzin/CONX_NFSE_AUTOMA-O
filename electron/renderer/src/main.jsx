@@ -712,6 +712,7 @@ function ExecutarPage({ api, toast, setStatus, onLogsUpdate, onJobStatusUpdate, 
   const [jobStatus, setJobStatus] = useState(busy ? 'Executando' : 'Pronto');
   const [logs, setLogs] = useState([]);
   const [cancelling, setCancelling] = useState(false);
+  const [cancelled, setCancelled] = useState(false);
 
   // Datas padrao = primeiro/ultimo dia do mes anterior (formato ISO yyyy-mm-dd)
   const calcMesAnterior = () => {
@@ -750,6 +751,7 @@ function ExecutarPage({ api, toast, setStatus, onLogsUpdate, onJobStatusUpdate, 
           setBusy(false);
           setJobId(null);
           setCancelling(false);
+          if (result.status === 'cancelado') setCancelled(true);
           toast(result.status === 'ok' ? 'Execucao concluida.' : `Execucao ${result.status}.`, result.status === 'ok' ? 'success' : 'warning');
         }
       } catch (error) {
@@ -793,6 +795,7 @@ function ExecutarPage({ api, toast, setStatus, onLogsUpdate, onJobStatusUpdate, 
 
       setBusy(true);
       setLogs([]);
+      setCancelled(false);
       setJobStatus('Executando');
       setStatus('Executando automacao');
       const result = await api.post('/executar', {
@@ -813,12 +816,14 @@ function ExecutarPage({ api, toast, setStatus, onLogsUpdate, onJobStatusUpdate, 
   const cancel = async () => {
     if (!jobId || cancelling) return;
     setCancelling(true);
+    setCancelled(true);
     try {
       await api.post(`/executar/${jobId}/cancelar`);
       toast('Cancelamento solicitado.', 'warning');
     } catch (error) {
       toast('Nao foi possivel cancelar.', 'error');
       setCancelling(false);
+      setCancelled(false);
     }
   };
 
@@ -936,7 +941,7 @@ function ExecutarPage({ api, toast, setStatus, onLogsUpdate, onJobStatusUpdate, 
         </div>
       </div>
 
-      {totalEsperado > 0 && (
+      {totalEsperado > 0 && !cancelled && (
         <div className="progress-box">
           <div className="progress-header">
             <div className="progress-title">
@@ -987,9 +992,13 @@ function ExecutarPage({ api, toast, setStatus, onLogsUpdate, onJobStatusUpdate, 
         </div>
       )}
 
-      {totalEsperado === 0 && !busy && (
+      {(totalEsperado === 0 || cancelled) && !busy && (
         <div className="empty-progress">
-          <p>Clique em <strong>Executar agora</strong> para iniciar o download das notas.</p>
+          <p>
+            {cancelled
+              ? <>Execução cancelada. Clique em <strong>Executar agora</strong> para iniciar novamente.</>
+              : <>Clique em <strong>Executar agora</strong> para iniciar o download das notas.</>}
+          </p>
         </div>
       )}
     </div>
