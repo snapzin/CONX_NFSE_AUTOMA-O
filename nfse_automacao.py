@@ -71,6 +71,9 @@ class Parametros:
     cnpjs: Optional[list[str]] = field(default=None)
     # Tipos de nota a baixar: "emitidas", "recebidas" ou "ambas".
     tipos: str = "ambas"
+    # Mapa CNPJ -> nome vindo da aba Clientes (servidor/por maquina). Quando
+    # presente, e usado como filtro/origem de nomes NO LUGAR do XLSX local.
+    clientes_map: Optional[dict[str, str]] = field(default=None)
 
 
 @dataclass
@@ -150,7 +153,15 @@ def _set_chrome_autoselect_policy(cn: str, url_pattern: str) -> bool:
 
 
 def _clear_chrome_autoselect_policy() -> None:
-    """Remove as entradas temporarias de auto-select do registro."""
+    """Remove TODAS as entradas de auto-select do registro.
+
+    Apaga tudo que estiver sob a chave — nao so os nomes atuais
+    (_CHROME_POLICY_NAMES). Isso e essencial porque versoes ANTIGAS do app
+    escreviam entradas com outros nomes (ex.: '999_nfse_auto'); se elas
+    ficarem para tras, o Chrome enxerga DOIS certificados diferentes
+    qualificados para o mesmo dominio e, em vez de auto-selecionar, mostra
+    o seletor manual. Limpamos sempre antes de escrever a do cliente atual.
+    """
     if os.name != "nt":
         return
     try:
@@ -159,12 +170,25 @@ def _clear_chrome_autoselect_policy() -> None:
         key = winreg.OpenKey(
             winreg.HKEY_CURRENT_USER, _CHROME_POLICY_KEY, 0, winreg.KEY_ALL_ACCESS,
         )
-        for name in _CHROME_POLICY_NAMES:
+        # Coleta todos os nomes primeiro (os indices mudam ao deletar durante
+        # a enumeracao) e depois remove um a um.
+        nomes: list[str] = []
+        idx = 0
+        while True:
             try:
-                winreg.DeleteValue(key, name)
+                nome, _, _ = winreg.EnumValue(key, idx)
+                nomes.append(nome)
+                idx += 1
+            except OSError:
+                break
+        for nome in nomes:
+            try:
+                winreg.DeleteValue(key, nome)
             except FileNotFoundError:
                 pass
         winreg.CloseKey(key)
+    except FileNotFoundError:
+        pass
     except Exception:
         pass
 
@@ -1109,6 +1133,49 @@ class NFSePlaywrightRunner:
         t = (txt or "").lower()
         return "nenhuma nota" in t
 
+    def _abrir_painel_como_aba(self, context, ext_id: str, cliente: Cliente):
+        """Abre o painel da extensao como uma ABA normal, controlavel por DOM
+        (chrome-extension://<id>/popup.html). Retorna a Page ou None.
+
+        Esse e o caminho PREFERIDO: como a aba e uma Page do Playwright,
+        configuramos tipo + datas e clicamos no botao via SELETOR — sem nenhum
+        clique por pixel/coordenada (icone, Emitidas/Recebidas, botao verde),
+        que sao a parte fragil que 'se perde' na tela.
+
+        Se a extensao bloquear a abertura direta (ERR_BLOCKED_BY_CLIENT) ou a
+        pagina aberta nao tiver os controles esperados, retorna None e o
+        chamador cai para o metodo por tela (pyautogui).
+        """
+        # Permite forcar o nome do arquivo do painel via config; senao tenta os
+        # nomes mais comuns ate achar um que tenha os controles de download.
+        candidatos = [
+            str(getattr(config, "NFSE_EXTENSION_PANEL_PAGE", "") or "").strip(),
+            "popup.html", "sidepanel.html", "panel.html", "index.html",
+        ]
+        candidatos = [p for p in dict.fromkeys(candidatos) if p]
+        for nome in candidatos:
+            url = f"chrome-extension://{ext_id}/{nome}"
+            page = None
+            try:
+                page = context.new_page()
+                page.goto(url, wait_until="domcontentloaded", timeout=8000)
+                # Confirma que e o painel certo: tem os controles de download.
+                page.wait_for_selector("#startDownloadBtn, .nfse-type-btn", timeout=4000)
+                log.info("[%s] Painel da extensao aberto como aba controlavel: %s",
+                         cliente.cnpj, nome)
+                return page
+            except Exception as e:
+                log.debug("[%s] '%s' nao serve como painel-aba: %s",
+                          cliente.cnpj, nome, str(e)[:120])
+                if page is not None:
+                    try:
+                        page.close()
+                    except Exception:
+                        pass
+        log.info("[%s] Nao foi possivel abrir o painel como aba; usando metodo por tela.",
+                 cliente.cnpj)
+        return None
+
     def _baixar_tipo_extensao(
         self,
         page_portal,
@@ -1123,6 +1190,7 @@ class NFSePlaywrightRunner:
         _check_cancel(self.cancel_event, f"[{cliente.cnpj}] Cancelado antes de baixar {tipo}.")
         log.info("[%s] Baixando %s via extensao NFSe...", cliente.cnpj, tipo)
 
+        panel_tab = None
         try:
             # 0. Se o portal estiver fora do ar (503/500/403) mesmo apos o login,
             #    recarrega ate voltar antes de tentar baixar.
@@ -1130,29 +1198,32 @@ class NFSePlaywrightRunner:
                 log.warning("[%s] Pulando %s: portal indisponivel.", cliente.cnpj, tipo)
                 return 0, ""
 
-            # 1. Abre o side panel da extensao (clique pyautogui no icone fixado)
-            self._abrir_popup_extensao(context, ext_id, page_portal)
+            # 1. Caminho PREFERIDO: abre o painel como ABA controlavel por DOM —
+            #    sem nenhum clique por pixel (icone/tipo/botao verde).
+            panel_tab = self._abrir_painel_como_aba(context, ext_id, cliente)
 
-            # 2. Espera o side panel carregar TUDO (a extensao le a sessao do
-            #    portal e monta os botoes/periodo). Configuravel via
-            #    NFSE_EXTENSAO_ESPERA_S (padrao 20s).
-            espera = max(2.5, self.extensao_espera_s)
-            log.info("[%s] Aguardando %ds o painel da extensao carregar...",
-                     cliente.cnpj, int(espera))
-            time.sleep(espera)
-            self._salvar_screenshot_debug(cliente, f"00_panel_aberto_{tipo}")
+            # 2. Se a aba nao abriu, cai para o side panel via clique no icone
+            #    (pyautogui) e espera ele montar (NFSE_EXTENSAO_ESPERA_S).
+            if panel_tab is None:
+                self._abrir_popup_extensao(context, ext_id, page_portal)
+                espera = max(2.5, self.extensao_espera_s)
+                log.info("[%s] Aguardando %ds o painel da extensao carregar...",
+                         cliente.cnpj, int(espera))
+                time.sleep(espera)
+                self._salvar_screenshot_debug(cliente, f"00_panel_aberto_{tipo}")
 
-            # 3-5. Configura tipo + datas e dispara o download. PREFERE controle
-            #      por DOM (confiavel: clica/seleciona por seletor e ja preenche
-            #      o periodo); se o painel nao estiver acessivel via Playwright,
-            #      cai para o metodo por tela (pyautogui). Com retry.
+            # 3-5. Configura tipo + datas e dispara o download. Quando temos a
+            #      aba/painel via DOM, tudo e por SELETOR (confiavel). Sem isso,
+            #      cai para os cliques por tela (pyautogui). Com retry.
             tentativas_dl = max(1, int(getattr(config, "NFSE_DOWNLOAD_TENTATIVAS", 2)))
             novo_arquivo = None
+            fallback_tela_feito = panel_tab is None
             for tnt in range(1, tentativas_dl + 1):
                 _check_cancel(self.cancel_event, f"[{cliente.cnpj}] Cancelado ao baixar {tipo}.")
 
                 acionou = False
-                panel_page = self._obter_pagina_painel(context, ext_id, page_portal)
+                panel_page = panel_tab if panel_tab is not None \
+                    else self._obter_pagina_painel(context, ext_id, page_portal)
                 if panel_page is not None:
                     acionou = self._baixar_via_dom(panel_page, tipo, params, cliente)
 
@@ -1175,6 +1246,33 @@ class NFSePlaywrightRunner:
                 if getattr(self, "_sem_notas", False):
                     log.info("[%s] %s: sem notas no periodo.", cliente.cnpj, tipo)
                     return 0, ""
+
+                # Se o caminho por ABA nao trouxe nada (ex.: a extensao depende
+                # da aba do portal estar ativa), faz UMA tentativa pelo metodo
+                # por tela antes de desistir deste tipo.
+                if panel_tab is not None and not fallback_tela_feito and tnt >= tentativas_dl:
+                    log.warning("[%s] Aba do painel nao baixou %s; tentando metodo por tela...",
+                                cliente.cnpj, tipo)
+                    fallback_tela_feito = True
+                    try:
+                        panel_tab.close()
+                    except Exception:
+                        pass
+                    panel_tab = None
+                    self._abrir_popup_extensao(context, ext_id, page_portal)
+                    time.sleep(max(2.5, self.extensao_espera_s))
+                    self._clicar_tipo_no_panel(tipo, cliente)
+                    time.sleep(0.8)
+                    self._clicar_iniciar_download(cliente)
+                    novo_arquivo = self._aguardar_download_em_pasta(
+                        cliente, timeout_s=self.download_timeout_s, panel_page=None,
+                        pastas=[output_dir],
+                    )
+                    if novo_arquivo is not None:
+                        break
+                    if getattr(self, "_sem_notas", False):
+                        return 0, ""
+
                 if tnt < tentativas_dl:
                     log.warning("[%s] Nenhum download de %s detectado; tentando de novo...",
                                 cliente.cnpj, tipo)
@@ -1213,7 +1311,12 @@ class NFSePlaywrightRunner:
             return count, str(dest)
 
         finally:
-            pass
+            # Fecha a aba do painel aberta para este tipo (se houver).
+            if panel_tab is not None:
+                try:
+                    panel_tab.close()
+                except Exception:
+                    pass
 
     def _processar_tipo(
         self,
@@ -1911,10 +2014,32 @@ def preparar_parametros(
     data_fim: str | None = None,
     cnpjs: list[str] | None = None,
     tipos: str | None = None,
+    clientes: list[dict] | None = None,
 ) -> Parametros:
-    """Monta parametros. Se nao houver datas, usa mes anterior."""
+    """Monta parametros. Se nao houver datas, usa mes anterior.
+
+    `clientes` (opcional) e a lista da aba Clientes [{documento, nome}, ...].
+    Quando informada, vira o filtro/origem de nomes da execucao no lugar do
+    XLSX local — assim a automacao processa exatamente quem esta cadastrado
+    na aba Clientes, e nao todos os certificados da pasta.
+    """
     if not data_inicio or not data_fim:
         data_inicio, data_fim = _mes_anterior()
+
+    # Normaliza a lista da aba Clientes em mapa documento(digitos) -> nome.
+    clientes_map: dict[str, str] | None = None
+    if clientes:
+        clientes_map = {}
+        for c in clientes:
+            if not isinstance(c, dict):
+                continue
+            doc = _normalizar_cnpj(str(c.get("documento", "")))
+            if len(doc) not in (11, 14):
+                continue
+            nome = str(c.get("nome", "")).strip()
+            clientes_map[doc] = nome or doc
+        if not clientes_map:
+            clientes_map = None
 
     tipos_norm = str(tipos or "ambas").lower().strip()
     if tipos_norm not in ("emitidas", "recebidas", "ambas"):
@@ -1948,13 +2073,15 @@ def preparar_parametros(
         data_fim=data_fim,
         cnpjs=filtrados,
         tipos=tipos_norm,
+        clientes_map=clientes_map,
     )
     log.info(
-        "Parametros: %s -> %s | CNPJs: %s | Tipos: %s",
+        "Parametros: %s -> %s | CNPJs: %s | Tipos: %s | Clientes (aba): %s",
         params.data_inicio,
         params.data_fim,
         params.cnpjs or "todos",
         params.tipos,
+        len(clientes_map) if clientes_map else "nao informados",
     )
     return params
 
@@ -2052,7 +2179,15 @@ def executar_local(
     _check_cancel(cancel_event, "Execucao cancelada antes da leitura dos certificados.")
     certs = listar_certificados(params.pasta_certs)
     certs_unicos, duplicados = indexar_certificados_por_cnpj(certs)
-    clientes_xlsx = _carregar_clientes_xlsx(params.xlsx_path)
+    # Prioriza a lista da aba Clientes (servidor/por maquina). So cai para o
+    # XLSX local quando a aba nao informou ninguem — assim a execucao respeita
+    # exatamente quem esta cadastrado na aba, em vez de varrer todos os certs.
+    if params.clientes_map:
+        clientes_xlsx = dict(params.clientes_map)
+        log.info("Usando %d cliente(s) da aba Clientes como filtro da execucao.",
+                 len(clientes_xlsx))
+    else:
+        clientes_xlsx = _carregar_clientes_xlsx(params.xlsx_path)
 
     todos_cert_cnpjs = set(certs_unicos.keys()) | set(duplicados.keys())
 

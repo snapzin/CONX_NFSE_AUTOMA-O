@@ -698,6 +698,28 @@ def _clientes_remote_call(op: str, license_key: str, clientes: list[dict] | None
     return data
 
 
+def _clientes_atuais(license_key: str) -> list[dict]:
+    """Lista de clientes da aba Clientes para uso na execucao.
+
+    Mesma fonte da tela de Clientes: servidor por maquina (quando remoto
+    ativo), com fallback para o XLSX local. Retorna [] se nada cadastrado —
+    nesse caso a automacao mantem o comportamento antigo (todos os certs).
+    """
+    if _clientes_remotos_ativos():
+        try:
+            data = _clientes_remote_call("get", license_key)
+            clientes = _normalizar_clientes(data.get("clientes") or [])
+            if clientes:
+                return clientes
+        except Exception as remote_err:
+            logger.warning("Falha ao obter clientes do servidor p/ execucao: %s", remote_err)
+    try:
+        return _ler_clientes_local().get("clientes") or []
+    except Exception as local_err:
+        logger.warning("Falha ao ler clientes locais p/ execucao: %s", local_err)
+        return []
+
+
 @app.get("/clientes")
 async def listar_clientes(request: Request):
     """Le clientes por maquina no servidor; usa XLSX local como fallback/migracao."""
@@ -810,7 +832,7 @@ async def license_deactivate_endpoint():
 
 
 @app.post("/executar")
-async def start_execution(body: dict):
+async def start_execution(request: Request, body: dict):
     """Inicia execução assíncrona. Retorna { jobId }."""
     _prune_jobs()
 
@@ -819,6 +841,11 @@ async def start_execution(body: dict):
         data_fim = body.get("dataFim")
         cnpjs = body.get("cnpjs")
         tipos = body.get("tipos")  # "emitidas" | "recebidas" | "ambas"
+
+        # Clientes da aba Clientes (servidor por maquina / XLSX local). Quando
+        # ha clientes cadastrados, a execucao processa SO eles — em vez de
+        # varrer todos os certificados da pasta.
+        clientes_exec = _clientes_atuais(request.headers.get("x-license-key", ""))
 
         job_id = str(uuid.uuid4())[:8]
         job = Job(id=job_id, status="running")
@@ -830,7 +857,9 @@ async def start_execution(body: dict):
 
         def run_job():
             try:
-                params = preparar_parametros(data_inicio, data_fim, cnpjs, tipos)
+                params = preparar_parametros(
+                    data_inicio, data_fim, cnpjs, tipos, clientes=clientes_exec,
+                )
                 resultado = executar_local(params, cancel_event=job.cancel_event)
                 job.status = "ok"
                 job.resultado = {
