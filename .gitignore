@@ -21,6 +21,9 @@ electron/dist/
 *.exe
 *.dmg
 *.blockmap
+# Instaladores/pacotes gerados (grandes demais para o GitHub: limite 100 MB)
+*.zip
+NFSe-Automacao-Setup-*.zip
 
 # ── SEGREDOS — nunca commitar ─────────────────────────────────────
 # config.py tem senha SMTP e caminhos locais — use config.example.py como base

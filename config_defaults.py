@@ -55,6 +55,17 @@ def default_values() -> dict[str, object]:
         # Tentativas de acionar o download de cada tipo antes de pular.
         "NFSE_DOWNLOAD_TENTATIVAS": 2,
 
+        # --- Auto-selecao de certificado (experimental) ---
+        # O metodo padrao (policy no registro + arg --auto-select-certificate-
+        # for-urls, ambos filtrando por CN) ja funciona. As duas opcoes abaixo
+        # sao tentativas EXTRAS de resolver o seletor manual em ambientes com
+        # certificados duplicados. Ficam DESLIGADAS por padrao porque mexem no
+        # sistema (matam processos / apagam certs da loja do Windows) e podem
+        # quebrar o login se o ambiente nao for exatamente o esperado.
+        # Ligue UMA de cada vez para testar.
+        "CERT_MATAR_CHROME_RESIDUAL": False,
+        "CERT_PREPARAR_STORE_WINDOWS": False,
+
         # Seletores com fallback conhecido. Os demais ficam opcionais.
         "NFSE_SELECTOR_LOGIN_OK": "",
         "NFSE_SELECTOR_BOTAO_CERTIFICADO": "a:has(img[alt*='Certificado'])",

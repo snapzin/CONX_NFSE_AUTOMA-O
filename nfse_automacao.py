@@ -18,6 +18,7 @@ import logging
 import os
 import re
 import smtplib
+import subprocess
 import tempfile
 import threading
 import time
@@ -191,6 +192,88 @@ def _clear_chrome_autoselect_policy() -> None:
         pass
     except Exception:
         pass
+
+
+def _matar_chrome_do_perfil(user_data_dir: str) -> None:
+    """Mata processos chrome/chromium que ainda usem ESTE perfil dedicado.
+
+    O Chrome le a politica AutoSelectCertificateForUrls apenas na inicializacao
+    do processo. Se um chrome.exe de uma execucao anterior continuar vivo
+    apontando para o mesmo --user-data-dir, a janela nova reaproveita esse
+    processo e ignora a politica recem-escrita — fazendo o seletor manual de
+    certificado aparecer. Matamos APENAS os processos cujo command line
+    referencia este perfil; o Chrome pessoal do usuario (outro perfil) nao e
+    tocado.
+    """
+    if os.name != "nt" or not str(user_data_dir).strip():
+        return
+    try:
+        alvo = str(user_data_dir).replace("'", "''")
+        cmd = (
+            "Get-CimInstance Win32_Process -Filter \"Name='chrome.exe' or Name='chromium.exe'\" "
+            "| Where-Object { $_.CommandLine -like '*" + alvo + "*' } "
+            "| ForEach-Object { Stop-Process -Id $_.ProcessId -Force -ErrorAction SilentlyContinue }"
+        )
+        subprocess.run(
+            ["powershell", "-NoProfile", "-NonInteractive", "-Command", cmd],
+            capture_output=True, timeout=25,
+        )
+    except Exception as exc:  # noqa: BLE001
+        log.debug("Falha ao encerrar Chrome residual do perfil: %s", exc)
+
+
+def _preparar_store_windows(cert: "CertificadoInfo") -> None:
+    """Garante EXATAMENTE um certificado na loja do Windows (CurrentUser\\My) com
+    o CN do cliente atual — pre-requisito para a auto-selecao do Chrome.
+
+    Porque: o Chrome so consegue auto-selecionar filtrando por CN (filtro por
+    SERIAL/thumbprint e invalido e faz o Chrome ignorar o filtro inteiro). Se a
+    loja tiver mais de um certificado com o MESMO CN (tipico de renovacao anual
+    ICP-Brasil) o filtro casa com varios e o Chrome exibe o seletor manual. Se
+    nao tiver nenhum, ele tambem exibe todos. Aqui:
+      1. Importamos o .pfx atual (idempotente — ignora se ja existir).
+      2. Removemos da loja os demais certificados com o MESMO CN, mantendo apenas
+         o thumbprint atual. Como o CN ICP-Brasil inclui o CNPJ (NOME:CNPJ), o
+         CN identifica unicamente a empresa, entao remover duplicatas e seguro.
+    """
+    if os.name != "nt" or not cert.cn or not cert.thumbprint_sha1:
+        return
+    # 1) importa o .pfx atual (idempotente)
+    try:
+        subprocess.run(
+            ["certutil", "-user", "-p", cert.senha or "", "-importpfx", str(cert.arquivo)],
+            capture_output=True, timeout=60,
+        )
+    except Exception as exc:  # noqa: BLE001
+        log.warning("[%s] Falha ao importar certificado na loja do Windows: %s",
+                    cert.documento or cert.cn, exc)
+
+    # 2) remove duplicatas de mesmo CN, preservando o thumbprint atual
+    try:
+        cn = cert.cn.replace("'", "''")
+        keep = cert.thumbprint_sha1.replace(" ", "").upper()
+        cmd = (
+            "$cn='" + cn + "'; $keep='" + keep + "'; "
+            "Get-ChildItem Cert:\\CurrentUser\\My "
+            "| Where-Object { $_.GetNameInfo('SimpleName',$false) -eq $cn "
+            "-and ($_.Thumbprint -replace ' ','').ToUpper() -ne $keep } "
+            "| ForEach-Object { $tp=$_.Thumbprint; Remove-Item $_.PSPath -Force -ErrorAction SilentlyContinue; $tp }"
+        )
+        res = subprocess.run(
+            ["powershell", "-NoProfile", "-NonInteractive", "-Command", cmd],
+            capture_output=True, text=True, timeout=40,
+        )
+        removidos = [l.strip() for l in (res.stdout or "").splitlines() if l.strip()]
+        if removidos:
+            log.info(
+                "[%s] Removidos %d certificado(s) duplicado(s) de mesmo CN da loja "
+                "do Windows (mantido o atual %s): %s",
+                cert.documento or cert.cn, len(removidos),
+                keep[:16], ", ".join(t[:16] for t in removidos),
+            )
+    except Exception as exc:  # noqa: BLE001
+        log.warning("[%s] Falha ao deduplicar certificados na loja do Windows: %s",
+                    cert.documento or cert.cn, exc)
 
 
 def _modernizar_pfx(cert_path: Path, password: str, friendly_name: str = "cert") -> Path:
@@ -1356,6 +1439,13 @@ class NFSePlaywrightRunner:
             user_data_dir = output_dir / "_profile"
         user_data_dir.mkdir(parents=True, exist_ok=True)
 
+        # Encerra qualquer Chrome residual ainda preso a ESTE perfil — caso
+        # contrario a janela nova reaproveita o processo antigo e ignora a
+        # politica de auto-selecao recem-escrita (seletor manual aparece).
+        # DESLIGADO por padrao (experimental): ver CERT_MATAR_CHROME_RESIDUAL.
+        if getattr(config, "CERT_MATAR_CHROME_RESIDUAL", False):
+            _matar_chrome_do_perfil(str(user_data_dir))
+
         # Limpa cookies/storage do cliente anterior — isolamento entre clientes
         # (substitui o que --incognito fazia, mas sem bloquear chrome-extension://)
         for subdir in ("Default", "Profile 1"):
@@ -1386,6 +1476,17 @@ class NFSePlaywrightRunner:
                     "(provavelmente seu ambiente tem GPO corporativa). O dialogo de "
                     "selecao de certificado vai aparecer e voce precisara clicar manualmente."
                 )
+
+        # Garante que a loja do Windows tenha exatamente 1 certificado com este
+        # CN (importa o atual e remove renovacoes antigas de mesmo CN). Sem isso,
+        # o filtro por CN do Chrome casa com varios certificados e o seletor
+        # manual aparece.
+        # DESLIGADO por padrao (experimental): ver CERT_PREPARAR_STORE_WINDOWS.
+        # CUIDADO: esta funcao APAGA certificados da loja do Windows; se o
+        # thumbprint nao casar exatamente pode remover o cert correto e quebrar
+        # o login. Ligue apenas para testar em ambiente controlado.
+        if getattr(config, "CERT_PREPARAR_STORE_WINDOWS", False):
+            _preparar_store_windows(cert)
 
         kwargs: dict = {
             "user_data_dir": str(user_data_dir),
