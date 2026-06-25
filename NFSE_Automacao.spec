@@ -36,7 +36,7 @@ hiddenimports += [
     "cryptography.hazmat.backends.openssl",
     "openpyxl", "openpyxl.styles", "openpyxl.utils",
     # módulos do projeto (exceto config.py — fica externo)
-    "cert_reader", "nfse_automacao", "dominio_importer",
+    "cert_reader", "nfse_automacao", "dominio_importer", "adn_client",
     "ui_widgets", "ui_animations",
     "runtime_settings",
 ]

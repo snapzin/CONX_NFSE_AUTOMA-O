@@ -12,6 +12,7 @@ Fluxo:
 
 from __future__ import annotations
 
+import contextlib
 import html as _html
 import json
 import logging
@@ -323,6 +324,11 @@ class NFSePlaywrightRunner:
         nome_pasta = _sanitizar_nome_pasta(cliente.nome)
         output_dir = self.base_output / nome_pasta
         output_dir.mkdir(parents=True, exist_ok=True)
+
+        # Caminho recomendado: baixa direto da API oficial ADN (mTLS com o
+        # certificado), sem navegador, extensao, captcha nem clique por pixel.
+        if bool(getattr(config, "USAR_API_ADN", True)):
+            return _baixar_cliente_adn(cert, cliente, params, output_dir, self.cancel_event)
 
         context = self._abrir_contexto(cert, output_dir)
         try:
@@ -2110,6 +2116,78 @@ def _mes_anterior() -> tuple[str, str]:
     return inicio, fim
 
 
+def _competencias_no_periodo(data_inicio_br: str, data_fim_br: str) -> set[str]:
+    """Conjunto de competencias 'YYYY-MM' cobertas pelo periodo (datas BR
+    'DD/MM/YYYY'). Usado para FILTRAR os DF-e baixados da API ADN por mes."""
+    try:
+        ini = _data_br_para_iso(data_inicio_br)  # YYYY-MM-DD
+        fim = _data_br_para_iso(data_fim_br)
+        ai, mi = int(ini[:4]), int(ini[5:7])
+        af, mf = int(fim[:4]), int(fim[5:7])
+    except Exception:
+        return set()
+    meses: set[str] = set()
+    ano, mes = ai, mi
+    while (ano, mes) <= (af, mf):
+        meses.add(f"{ano:04d}-{mes:02d}")
+        mes += 1
+        if mes > 12:
+            ano, mes = ano + 1, 1
+    return meses
+
+
+def _tipos_para_adn(tipos: str) -> set[str]:
+    """Mapeia a opcao da GUI (emitidas/recebidas/ambas) para os tipos do ADN."""
+    t = (tipos or "ambas").lower()
+    if t == "emitidas":
+        return {"Emitidas"}
+    if t == "recebidas":
+        return {"Recebidas"}
+    return {"Emitidas", "Recebidas", "Eventos", "Outros"}
+
+
+def _baixar_cliente_adn(
+    cert: CertificadoInfo,
+    cliente: Cliente,
+    params: Parametros,
+    output_dir: Path,
+    cancel_event: threading.Event | None = None,
+) -> tuple[int, str, int, str]:
+    """Baixa os DF-e do cliente direto da API ADN (mTLS) e salva em
+    output_dir/<Tipo>/. Retorna (n_emitidas, arq_emitidas, n_recebidas,
+    arq_recebidas) no mesmo contrato de processar_cliente."""
+    import adn_client
+
+    competencias = _competencias_no_periodo(params.data_inicio, params.data_fim) or None
+    tipos = _tipos_para_adn(getattr(params, "tipos", "ambas"))
+    log.info(
+        "[%s] Baixando via API ADN | competencias=%s | tipos=%s",
+        cliente.cnpj, sorted(competencias) if competencias else "todas", sorted(tipos),
+    )
+
+    res = adn_client.baixar_dfe(
+        cert_path=cert.arquivo,
+        senha=cert.senha,
+        owner_cnpj=cert.documento or cliente.cnpj,
+        destino=output_dir,
+        competencias=competencias,
+        tipos=tipos,
+        cancelar=(lambda: bool(cancel_event and cancel_event.is_set())),
+    )
+    if res.erro:
+        raise RuntimeError(f"Falha na API ADN: {res.erro}")
+
+    log.info(
+        "[%s] ADN concluido: %d emitidas, %d recebidas, %d eventos, %d outros "
+        "(ultimo NSU %d; %d fora da competencia).",
+        cliente.cnpj, res.emitidas, res.recebidas, res.eventos, res.outros,
+        res.ultimo_nsu, res.ignorados_competencia,
+    )
+    arq_emit = str(output_dir / "Emitidas") if res.emitidas else ""
+    arq_rec = str(output_dir / "Recebidas") if res.recebidas else ""
+    return res.emitidas, arq_emit, res.recebidas, arq_rec
+
+
 def preparar_parametros(
     data_inicio: str | None = None,
     data_fim: str | None = None,
@@ -2341,11 +2419,19 @@ def executar_local(
     )
 
     resultados: list[ResultadoCNPJ] = []
-    with sync_playwright() as playwright:
+    # Com a API ADN o download e 100% HTTP — nao abrimos navegador nem exigimos
+    # o Playwright instalado. So entramos no contexto do Playwright no fluxo legado.
+    usar_adn = bool(getattr(config, "USAR_API_ADN", True))
+    pw_ctx = contextlib.nullcontext(None) if usar_adn else sync_playwright()
+    with pw_ctx as playwright:
         runner = NFSePlaywrightRunner(playwright, cancel_event=cancel_event)
 
+        intervalo_adn = float(getattr(config, "ADN_INTERVALO_CLIENTES_S", 1.5) or 0)
         for idx, cnpj in enumerate(alvo_cnpjs, start=1):
             _check_cancel(cancel_event, "Execucao cancelada pelo usuario.")
+            # Respira entre clientes no modo ADN para nao bater no rate-limit (429).
+            if usar_adn and idx > 1 and intervalo_adn > 0:
+                time.sleep(intervalo_adn)
             nome = clientes_xlsx.get(cnpj, cnpj)
             log.info(
                 "[%d/%d] Cliente XLSX: '%s' (CNPJ %s) — buscando .pfx correspondente...",

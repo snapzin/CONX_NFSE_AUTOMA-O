@@ -66,6 +66,15 @@ def default_values() -> dict[str, object]:
         "CERT_MATAR_CHROME_RESIDUAL": False,
         "CERT_PREPARAR_STORE_WINDOWS": False,
 
+        # --- Motor de download ---
+        # True  = baixa direto da API oficial ADN (mTLS com o certificado), sem
+        #         navegador/extensao/captcha. Caminho recomendado e robusto.
+        # False = caminho legado via navegador + extensao "Baixar NFSe".
+        "USAR_API_ADN": True,
+        # Pausa (segundos) entre um cliente e o proximo no modo ADN, para nao
+        # bater no rate-limit (HTTP 429) da API oficial. 0 desliga.
+        "ADN_INTERVALO_CLIENTES_S": 1.5,
+
         # Seletores com fallback conhecido. Os demais ficam opcionais.
         "NFSE_SELECTOR_LOGIN_OK": "",
         "NFSE_SELECTOR_BOTAO_CERTIFICADO": "a:has(img[alt*='Certificado'])",
