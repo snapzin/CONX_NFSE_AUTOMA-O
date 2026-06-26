@@ -55,24 +55,9 @@ def default_values() -> dict[str, object]:
         # Tentativas de acionar o download de cada tipo antes de pular.
         "NFSE_DOWNLOAD_TENTATIVAS": 2,
 
-        # --- Auto-selecao de certificado (experimental) ---
-        # O metodo padrao (policy no registro + arg --auto-select-certificate-
-        # for-urls, ambos filtrando por CN) ja funciona. As duas opcoes abaixo
-        # sao tentativas EXTRAS de resolver o seletor manual em ambientes com
-        # certificados duplicados. Ficam DESLIGADAS por padrao porque mexem no
-        # sistema (matam processos / apagam certs da loja do Windows) e podem
-        # quebrar o login se o ambiente nao for exatamente o esperado.
-        # Ligue UMA de cada vez para testar.
-        "CERT_MATAR_CHROME_RESIDUAL": False,
-        "CERT_PREPARAR_STORE_WINDOWS": False,
-
-        # --- Motor de download ---
-        # True  = baixa direto da API oficial ADN (mTLS com o certificado), sem
-        #         navegador/extensao/captcha. Caminho recomendado e robusto.
-        # False = caminho legado via navegador + extensao "Baixar NFSe".
-        "USAR_API_ADN": True,
-        # Pausa (segundos) entre um cliente e o proximo no modo ADN, para nao
-        # bater no rate-limit (HTTP 429) da API oficial. 0 desliga.
+        # --- Motor de download (API oficial ADN, mTLS com o certificado) ---
+        # Pausa (segundos) entre um cliente e o proximo, para nao bater no
+        # rate-limit (HTTP 429) da API oficial. 0 desliga.
         "ADN_INTERVALO_CLIENTES_S": 1.5,
 
         # Seletores com fallback conhecido. Os demais ficam opcionais.
