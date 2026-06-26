@@ -651,22 +651,27 @@ def montar_mensagem_erro(erro: str) -> dict:
 
 
 def _destinatarios_email() -> list[str]:
-    destinatarios = [
+    return [
         item.strip()
         for item in str(getattr(config, "ZOHO_EMAIL_TO", "")).split(",")
         if item.strip()
     ]
-    if not destinatarios:
-        raise ValueError("ZOHO_EMAIL_TO nao pode ficar vazio.")
-    return destinatarios
 
 
 def notificar_email(assunto: str, mensagem: str) -> None:
-    """Envia e-mail via SMTP do Zoho Mail."""
+    """Envia e-mail via SMTP do Zoho Mail. E OPCIONAL: se o SMTP/destinatarios
+    nao estiverem configurados, apenas registra e segue (nao derruba a execucao)."""
+    destinatarios = _destinatarios_email()
+    if not (str(getattr(config, "ZOHO_SMTP_HOST", "")).strip()
+            and str(getattr(config, "ZOHO_EMAIL_FROM", "")).strip()
+            and destinatarios):
+        log.info("E-mail nao configurado (ZOHO_SMTP_*/ZOHO_EMAIL_*) — relatorio nao enviado.")
+        return
+
     email = EmailMessage()
     email["Subject"] = assunto
     email["From"] = config.ZOHO_EMAIL_FROM
-    email["To"] = ", ".join(_destinatarios_email())
+    email["To"] = ", ".join(destinatarios)
     email.set_content(mensagem)
 
     try:
@@ -694,7 +699,7 @@ def executar(
 ) -> None:
     """Executa o fluxo completo da automacao local."""
     log.info("=" * 60)
-    log.info("Iniciando automacao NFSe (local/Playwright)")
+    log.info("Iniciando automacao NFSe (API oficial ADN)")
 
     try:
         params = preparar_parametros(data_inicio, data_fim, cnpjs)
