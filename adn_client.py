@@ -140,10 +140,9 @@ def parse_meta(xml_str: str) -> Optional[MetaNota]:
     )
 
 
-def classify_tipo(tipo_doc: str, meta: Optional[MetaNota], owner_digits: str) -> str:
-    """Emitidas / Recebidas / Eventos / Outros, do ponto de vista do dono."""
-    if (tipo_doc or "").upper() == "EVENTO":
-        return "Eventos"
+def classify_nota(meta: Optional[MetaNota], owner_digits: str) -> str:
+    """Emitidas / Recebidas / Outros, do ponto de vista do dono da caixa.
+    (Cancelamento e tratado a parte, cruzando os eventos — ver parse_evento.)"""
     if meta is None or not owner_digits:
         return "Outros"
     if meta.prestador_cnpj and meta.prestador_cnpj == owner_digits:
@@ -151,6 +150,34 @@ def classify_tipo(tipo_doc: str, meta: Optional[MetaNota], owner_digits: str) ->
     if meta.tomador_cnpj and meta.tomador_cnpj == owner_digits:
         return "Recebidas"
     return "Outros"
+
+
+def parse_evento(xml_str: str) -> Optional[tuple[str, str, bool]]:
+    """Le um XML de EVENTO da NFS-e. Retorna (chave_da_nota_afetada, tpEvento,
+    eh_cancelamento) ou None se nao for um evento valido.
+
+    Estrutura: <evento>..<infPedReg><chNFSe/><e101101><xDesc/></e101101>..
+    Cancelamento = tpEvento '101101' OU xDesc contendo 'cancel' (NT-008 oficial).
+    """
+    try:
+        root = ET.fromstring(xml_str)
+    except ET.ParseError:
+        return None
+    inf = _bloco(root, "infPedReg")
+    if inf is None:
+        return None
+    chave = _so_digitos(_primeiro_texto(inf, "chNFSe"))
+    if not chave:
+        return None
+    tp_evento, xdesc = "", ""
+    for el in inf.iter():
+        ln = _localname(el.tag)
+        if re.fullmatch(r"e\d{4,}", ln):
+            tp_evento = ln[1:]
+            xdesc = _primeiro_texto(el, "xDesc")
+            break
+    eh_cancelamento = tp_evento == "101101" or "cancel" in (xdesc or "").lower()
+    return chave, tp_evento, eh_cancelamento
 
 
 # ───────────────────────── utilitarios ──────────────────────────────
@@ -179,19 +206,34 @@ def _sanitizar(nome: str, limite: int = 80) -> str:
     return nome or "sem-nome"
 
 
-def _nome_arquivo(meta: Optional[MetaNota], nsu, chave: str, tipo: str) -> str:
-    """Nome do XML: 'Numero Contraparte NSU.xml' (NSU sempre no fim, garante
-    unicidade). Espelha o esquema 'Numero + Nome + NSU' da extensao."""
+def _contraparte_limpa(nome: str, limite_palavras: int = 3) -> str:
+    """Primeiras palavras significativas do nome (ignora tokens so de digitos/
+    pontuacao, ex.: CNPJ no lugar do nome). '' se nao houver nome utilizavel."""
+    toks = [t for t in (nome or "").split() if re.search(r"[A-Za-zÀ-ÿ]", t)]
+    return " ".join(toks[:limite_palavras])
+
+
+def _nome_nota(meta: Optional[MetaNota], owner_digits: str, nsu, chave: str) -> str:
+    """Nome do XML da nota: 'Numero - Contraparte - NSU.xml'.
+
+    Contraparte = o OUTRO lado: nas emitidas e o Tomador (cliente), nas
+    recebidas e o Prestador (fornecedor). O NSU no fim garante unicidade
+    (numeros podem repetir entre prestadores diferentes nas recebidas).
+    """
     numero = (meta.numero if meta else "") or ""
-    if tipo == "Emitidas":
-        contraparte = (meta.tomador_nome if meta else "") or ""
-    elif tipo == "Recebidas":
-        contraparte = (meta.prestador_nome if meta else "") or ""
+    if meta and meta.prestador_cnpj == owner_digits:
+        contraparte = _contraparte_limpa(meta.tomador_nome)      # emitida -> tomador
     else:
-        contraparte = ""
-    contraparte = contraparte.split()[0] if contraparte.split() else ""
-    partes = [p for p in (numero, contraparte, str(nsu)) if p]
-    base = " ".join(partes) if partes else (chave or f"nsu_{nsu}")
+        contraparte = _contraparte_limpa(meta.prestador_nome if meta else "")  # recebida -> prestador
+    partes = [p for p in (numero, contraparte, f"NSU{nsu}") if p]
+    base = " - ".join(partes) if numero or contraparte else (chave or f"NSU{nsu}")
+    return _sanitizar(base) + ".xml"
+
+
+def _nome_evento_cancel(numero_nota: str, chave: str, nsu) -> str:
+    """Nome do XML do evento de cancelamento: 'Cancelamento - Numero - NSU.xml'."""
+    partes = [p for p in ("Cancelamento", numero_nota, f"NSU{nsu}") if p]
+    base = " - ".join(partes) if numero_nota else f"Cancelamento - {chave or nsu}"
     return _sanitizar(base) + ".xml"
 
 
@@ -201,16 +243,17 @@ def _nome_arquivo(meta: Optional[MetaNota], nsu, chave: str, tipo: str) -> str:
 class ResultadoADN:
     emitidas: int = 0
     recebidas: int = 0
-    eventos: int = 0
-    outros: int = 0
+    canceladas: int = 0             # notas canceladas (vao para a pasta Canceladas)
     ignorados_competencia: int = 0  # fora do filtro de competencia
+    eventos_ignorados: int = 0      # eventos nao-cancelamento (substituicao etc.)
+    nao_classificados: int = 0      # notas sem dono claro (raro)
     ultimo_nsu: int = 0
     arquivos: list[Path] = field(default_factory=list)
     erro: str = ""
 
     @property
     def total_salvo(self) -> int:
-        return self.emitidas + self.recebidas + self.eventos + self.outros
+        return self.emitidas + self.recebidas + self.canceladas
 
 
 def _fetch_lote(
@@ -299,15 +342,15 @@ def baixar_dfe(
 ) -> ResultadoADN:
     """Baixa os DF-e da caixa do certificado e salva os XML em disco.
 
-    Estrutura de saida:  destino/<Tipo>/<arquivo>.xml
-      (o chamador ja passa `destino` como a pasta do cliente; aqui separamos
-       por Tipo. A competencia entra como FILTRO, nao como pasta — o chamador
-       decide a arvore.)
+    Estrutura de saida (apenas 3 pastas):  destino/{Emitidas|Recebidas|Canceladas}/
+      - Emitidas : notas em que o dono e o PRESTADOR
+      - Recebidas: notas em que o dono e o TOMADOR
+      - Canceladas: notas que tem um evento de cancelamento (+ o XML do evento)
 
     Parametros:
       owner_cnpj    : CNPJ do dono da caixa (do certificado) — define Emitidas/Recebidas.
       competencias  : se dado, salva so docs cuja competencia (YYYY-MM) esteja no conjunto.
-      tipos         : subconjunto de {"Emitidas","Recebidas","Eventos","Outros"} a salvar.
+      tipos         : subconjunto de {"Emitidas","Recebidas","Canceladas"} a salvar.
                       None = todos.
       cnpj_consulta : consulta de filial/terceiro (matriz->filial). "" = a propria caixa.
       nsu_inicial   : retomar a partir de um NSU (sync incremental). 0 = caixa inteira.
@@ -335,6 +378,16 @@ def baixar_dfe(
         session.cert = (tmp_cert.name, tmp_key.name)
 
         destino = Path(destino)
+
+        # ── PASSO 1: percorre a caixa inteira, separando notas dos eventos e
+        #            mapeando quais notas foram CANCELADAS (o evento de
+        #            cancelamento vem depois da nota, com NSU maior — por isso
+        #            precisamos de dois passos). ────────────────────────────
+        notas = []                 # (nsu, chave, xml, meta)
+        eventos_cancel = []        # (nsu, chave_afetada, xml)
+        chaves_canceladas = set()
+        chave_para_meta = {}
+
         for d in iter_documentos(session, cnpj_consulta, nsu_inicial, cancelar):
             try:
                 nsu = int(d.get("NSU"))
@@ -345,43 +398,71 @@ def baixar_dfe(
             arquivo_b64 = d.get("ArquivoXml")
             if not arquivo_b64:
                 continue  # resumo sem XML (nada a salvar)
-
             try:
                 xml = decode_arquivo_xml(arquivo_b64)
             except Exception as exc:  # noqa: BLE001
                 log.warning("ADN: falha ao decodificar NSU %s: %s", nsu, exc)
                 continue
 
-            meta = parse_meta(xml)
-            tipo = classify_tipo(d.get("TipoDocumento", ""), meta, owner)
-
-            if competencias is not None:
-                comp = meta.competencia_mes if meta else ""
-                if comp not in competencias:
-                    res.ignorados_competencia += 1
-                    continue
-            if tipos is not None and tipo not in tipos:
+            if (d.get("TipoDocumento", "") or "").upper() == "EVENTO":
+                ev = parse_evento(xml)
+                if ev and ev[2]:                       # eh_cancelamento
+                    chaves_canceladas.add(ev[0])
+                    eventos_cancel.append((nsu, ev[0], xml))
+                elif ev:
+                    res.eventos_ignorados += 1         # substituicao/manifestacao/etc.
                 continue
 
-            pasta = destino / tipo
+            chave = _so_digitos(d.get("ChaveAcesso", ""))
+            meta = parse_meta(xml)
+            notas.append((nsu, chave, xml, meta))
+            if chave and meta:
+                chave_para_meta[chave] = meta
+
+        # ── PASSO 2: salva. Apenas 3 pastas: Emitidas, Recebidas, Canceladas. ──
+        def _no_periodo(comp: str) -> bool:
+            return competencias is None or comp in competencias
+
+        def _salvar(pasta_nome: str, arquivo: str, conteudo: str) -> bool:
+            if tipos is not None and pasta_nome not in tipos:
+                return False
+            pasta = destino / pasta_nome
             pasta.mkdir(parents=True, exist_ok=True)
-            nome = _nome_arquivo(meta, nsu, d.get("ChaveAcesso", ""), tipo)
-            caminho = pasta / nome
+            caminho = pasta / arquivo
             try:
-                caminho.write_text(xml, encoding="utf-8")
+                caminho.write_text(conteudo, encoding="utf-8")
             except OSError as exc:
                 log.warning("ADN: falha ao gravar %s: %s", caminho, exc)
-                continue
-
+                return False
             res.arquivos.append(caminho)
-            if tipo == "Emitidas":
+            return True
+
+        for nsu, chave, xml, meta in notas:
+            comp = meta.competencia_mes if meta else ""
+            if not _no_periodo(comp):
+                res.ignorados_competencia += 1
+                continue
+            if chave and chave in chaves_canceladas:
+                if _salvar("Canceladas", _nome_nota(meta, owner, nsu, chave), xml):
+                    res.canceladas += 1
+                continue
+            tipo = classify_nota(meta, owner)
+            if tipo == "Emitidas" and _salvar("Emitidas", _nome_nota(meta, owner, nsu, chave), xml):
                 res.emitidas += 1
-            elif tipo == "Recebidas":
+            elif tipo == "Recebidas" and _salvar("Recebidas", _nome_nota(meta, owner, nsu, chave), xml):
                 res.recebidas += 1
-            elif tipo == "Eventos":
-                res.eventos += 1
-            else:
-                res.outros += 1
+            elif tipo == "Outros":
+                res.nao_classificados += 1   # sem dono claro -> nao salva (mantem 3 pastas)
+
+        # ── PASSO 3: guarda o XML do evento de cancelamento junto, em Canceladas
+        #            (mesma competencia da nota cancelada). ──────────────────
+        for nsu, chave_af, xml in eventos_cancel:
+            meta_nota = chave_para_meta.get(chave_af)
+            comp = meta_nota.competencia_mes if meta_nota else ""
+            if not _no_periodo(comp):
+                continue
+            numero = meta_nota.numero if meta_nota else ""
+            _salvar("Canceladas", _nome_evento_cancel(numero, chave_af, nsu), xml)
     except Exception as exc:  # noqa: BLE001
         res.erro = str(exc)
         log.exception("ADN: erro ao baixar DF-e do CNPJ %s", owner)

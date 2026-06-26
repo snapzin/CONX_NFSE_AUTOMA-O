@@ -172,13 +172,14 @@ def _competencias_no_periodo(data_inicio_br: str, data_fim_br: str) -> set[str]:
 
 
 def _tipos_para_adn(tipos: str) -> set[str]:
-    """Mapeia a opcao da GUI (emitidas/recebidas/ambas) para os tipos do ADN."""
+    """Mapeia a opcao da GUI (emitidas/recebidas/ambas) para as pastas do ADN.
+    Canceladas acompanha sempre que a nota for do tipo pedido."""
     t = (tipos or "ambas").lower()
     if t == "emitidas":
-        return {"Emitidas"}
+        return {"Emitidas", "Canceladas"}
     if t == "recebidas":
-        return {"Recebidas"}
-    return {"Emitidas", "Recebidas", "Eventos", "Outros"}
+        return {"Recebidas", "Canceladas"}
+    return {"Emitidas", "Recebidas", "Canceladas"}
 
 
 def _baixar_cliente_adn(
@@ -213,9 +214,9 @@ def _baixar_cliente_adn(
         raise RuntimeError(f"Falha na API ADN: {res.erro}")
 
     log.info(
-        "[%s] ADN concluido: %d emitidas, %d recebidas, %d eventos, %d outros "
+        "[%s] ADN concluido: %d emitidas, %d recebidas, %d canceladas "
         "(ultimo NSU %d; %d fora da competencia).",
-        cliente.cnpj, res.emitidas, res.recebidas, res.eventos, res.outros,
+        cliente.cnpj, res.emitidas, res.recebidas, res.canceladas,
         res.ultimo_nsu, res.ignorados_competencia,
     )
     arq_emit = str(output_dir / "Emitidas") if res.emitidas else ""
